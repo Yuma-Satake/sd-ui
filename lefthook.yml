@@ -1,0 +1,10 @@
+pre-commit:
+  parallel: true
+  commands:
+    biome-check:
+      glob: "*.{js,ts,jsx,tsx,json}"
+      run: npx @biomejs/biome check --write --staged
+      stage_fixed: true
+    typecheck:
+      glob: "*.{ts,tsx}"
+      run: npm run typecheck
