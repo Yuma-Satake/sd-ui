@@ -25,16 +25,16 @@
 
 ```bash
 # Node.js依存関係
-npm install
+bun install
 
 # Python依存関係
-pip install -r requirements.txt
+uv sync
 ```
 
 ### 2. 開発サーバーの起動
 
 ```bash
-npm run dev
+bun run dev
 ```
 
 ブラウザで http://localhost:3000 を開く
@@ -64,7 +64,7 @@ st-ui/
 ├── python/
 │   └── generator.py                  # Stable Diffusion処理
 ├── package.json
-├── requirements.txt
+├── pyproject.toml
 ├── tailwind.config.ts
 ├── tsconfig.json
 └── next.config.js
