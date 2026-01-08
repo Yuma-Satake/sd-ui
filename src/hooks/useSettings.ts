@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback } from "react"
-import type { ControlNetConfig, LoRAConfig } from "@/types/generation"
+import type { ControlNetConfig, LoRAConfig, SamplerType } from "@/types/generation"
 import { useLocalStorage } from "./useLocalStorage"
 
 const SETTINGS_KEY = "sd-ui-settings"
@@ -20,6 +20,7 @@ export type GenerationSettings = {
   modelId: string
   lora: LoRAConfig
   controlnet: ControlNetConfig
+  sampler: SamplerType
 }
 
 export type CustomPreset = {
@@ -57,6 +58,7 @@ const DEFAULT_SETTINGS: GenerationSettings = {
   modelId: "runwayml/stable-diffusion-v1-5",
   lora: DEFAULT_LORA,
   controlnet: DEFAULT_CONTROLNET,
+  sampler: "dpm++_2m",
 }
 
 type UseSettingsReturn = {

@@ -31,6 +31,7 @@ type Txt2ImgParams = {
   model_id?: string
   lora?: LoRAConfig
   controlnet?: ControlNetConfig
+  sampler?: string
 }
 
 async function runPython(command: string, input: Txt2ImgParams): Promise<{ images: string[] }> {
@@ -90,6 +91,7 @@ export const POST = async (request: NextRequest): Promise<NextResponse> => {
       model_id,
       lora,
       controlnet,
+      sampler,
     } = body
 
     if (!prompt) {
@@ -117,6 +119,10 @@ export const POST = async (request: NextRequest): Promise<NextResponse> => {
 
     if (controlnet) {
       params.controlnet = controlnet
+    }
+
+    if (sampler) {
+      params.sampler = sampler
     }
 
     const result = await runPython("txt2img", params)
