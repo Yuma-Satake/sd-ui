@@ -5,9 +5,9 @@ description = "Stable Diffusion WebUI"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "diffusers>=0.30.0",
-    "transformers>=4.40.0",
-    "accelerate>=0.30.0",
+    "diffusers>=0.30.0,<0.32.0",
+    "transformers>=4.40.0,<4.50.0",
+    "accelerate>=0.30.0,<0.35.0",
     "torch>=2.0.0,<2.6",
     "numpy<2",
     "Pillow>=10.0.0",
