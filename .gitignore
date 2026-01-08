@@ -32,6 +32,9 @@ venv/
 .venv/
 *.egg-info/
 
+# uv
+uv.lock
+
 # IDE
 .vscode/
 .idea/

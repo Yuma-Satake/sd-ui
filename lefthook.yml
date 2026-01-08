@@ -3,8 +3,8 @@ pre-commit:
   commands:
     biome-check:
       glob: "*.{js,ts,jsx,tsx,json}"
-      run: npx @biomejs/biome check --write --staged
+      run: bunx @biomejs/biome check --write --staged --files-ignore-unknown=true --no-errors-on-unmatched
       stage_fixed: true
     typecheck:
       glob: "*.{ts,tsx}"
-      run: npm run typecheck
+      run: bun run typecheck
