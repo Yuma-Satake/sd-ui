@@ -1,10 +1,11 @@
 "use client"
 
+import { Dices, Loader2, RotateCcw, Save, Trash2 } from "lucide-react"
 import { useState } from "react"
-import { Dices, Loader2 } from "lucide-react"
+import { ControlNetPanel } from "@/components/ControlNetPanel"
+import { LoRAPanel } from "@/components/LoRAPanel"
+import { ModelSelector } from "@/components/ModelSelector"
 import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
-import { Slider } from "@/components/ui/slider"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -13,8 +14,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Slider } from "@/components/ui/slider"
+import { Textarea } from "@/components/ui/textarea"
+import type { CustomPreset, GenerationSettings } from "@/hooks/useSettings"
+import type { ControlNetConfig, LoRAConfig } from "@/types/generation"
 
-interface GenerateParams {
+type GenerateParams = {
   prompt: string
   negative_prompt: string
   width?: number
@@ -24,92 +29,151 @@ interface GenerateParams {
   guidance_scale: number
   seed: number | null
   num_images: number
+  model_id?: string
+  lora?: LoRAConfig
+  controlnet?: ControlNetConfig
 }
 
-interface ParameterPanelProps {
+type ParameterPanelProps = {
   mode: "txt2img" | "img2img"
   onGenerate: (params: GenerateParams) => void
   isGenerating: boolean
   hasInputImage: boolean
+  settings: GenerationSettings
+  updateSettings: (updates: Partial<GenerationSettings>) => void
+  resetSettings: () => void
+  customPresets: CustomPreset[]
+  savePreset: (
+    name: string,
+    mode: "txt2img" | "img2img",
+    settings: Partial<GenerationSettings>,
+  ) => void
+  deletePreset: (id: string) => void
+  applyPreset: (preset: CustomPreset) => void
 }
 
-const PRESETS = {
+const DEFAULT_PRESETS = {
   txt2img: [
-    { name: "Default", width: 512, height: 512, steps: 30, guidance_scale: 7.5 },
-    { name: "High Quality", width: 768, height: 768, steps: 50, guidance_scale: 8.0 },
-    { name: "Fast", width: 512, height: 512, steps: 20, guidance_scale: 7.0 },
-    { name: "Portrait", width: 512, height: 768, steps: 30, guidance_scale: 7.5 },
-    { name: "Landscape", width: 768, height: 512, steps: 30, guidance_scale: 7.5 },
+    { name: "Default", width: 512, height: 512, steps: 30, guidanceScale: 7.5 },
+    { name: "High Quality", width: 768, height: 768, steps: 50, guidanceScale: 8.0 },
+    { name: "Fast", width: 512, height: 512, steps: 20, guidanceScale: 7.0 },
+    { name: "Portrait", width: 512, height: 768, steps: 30, guidanceScale: 7.5 },
+    { name: "Landscape", width: 768, height: 512, steps: 30, guidanceScale: 7.5 },
   ],
   img2img: [
-    { name: "Light Touch", strength: 0.3, steps: 30, guidance_scale: 7.5 },
-    { name: "Moderate", strength: 0.5, steps: 30, guidance_scale: 7.5 },
-    { name: "Strong", strength: 0.75, steps: 30, guidance_scale: 7.5 },
-    { name: "Complete Restyle", strength: 0.9, steps: 40, guidance_scale: 8.0 },
+    { name: "Light Touch", strength: 0.3, steps: 30, guidanceScale: 7.5 },
+    { name: "Moderate", strength: 0.5, steps: 30, guidanceScale: 7.5 },
+    { name: "Strong", strength: 0.75, steps: 30, guidanceScale: 7.5 },
+    { name: "Complete Restyle", strength: 0.9, steps: 40, guidanceScale: 8.0 },
   ],
 }
 
-export function ParameterPanel({
+export const ParameterPanel = ({
   mode,
   onGenerate,
   isGenerating,
   hasInputImage,
-}: ParameterPanelProps) {
-  const [prompt, setPrompt] = useState("")
-  const [negativePrompt, setNegativePrompt] = useState("")
-  const [width, setWidth] = useState(512)
-  const [height, setHeight] = useState(512)
-  const [steps, setSteps] = useState(30)
-  const [guidanceScale, setGuidanceScale] = useState(7.5)
-  const [strength, setStrength] = useState(0.75)
-  const [seed, setSeed] = useState("")
-  const [numImages, setNumImages] = useState(1)
+  settings,
+  updateSettings,
+  resetSettings,
+  customPresets,
+  savePreset,
+  deletePreset,
+  applyPreset,
+}: ParameterPanelProps): React.ReactNode => {
+  const [presetName, setPresetName] = useState("")
+  const [showPresetInput, setShowPresetInput] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent): void => {
     e.preventDefault()
-    if (!prompt.trim()) return
+    if (!settings.prompt.trim()) return
     if (mode === "img2img" && !hasInputImage) return
 
     const params: GenerateParams = {
-      prompt: prompt.trim(),
-      negative_prompt: negativePrompt.trim(),
-      steps,
-      guidance_scale: guidanceScale,
-      seed: seed ? parseInt(seed, 10) : null,
-      num_images: numImages,
+      prompt: settings.prompt.trim(),
+      negative_prompt: settings.negativePrompt.trim(),
+      steps: settings.steps,
+      guidance_scale: settings.guidanceScale,
+      seed: settings.seed ? Number.parseInt(settings.seed, 10) : null,
+      num_images: settings.numImages,
+      model_id: settings.modelId,
+    }
+
+    if (settings.lora.enabled && settings.lora.modelPath) {
+      params.lora = settings.lora
+    }
+
+    if (settings.controlnet.enabled && settings.controlnet.modelName) {
+      params.controlnet = settings.controlnet
     }
 
     if (mode === "txt2img") {
-      params.width = width
-      params.height = height
+      params.width = settings.width
+      params.height = settings.height
     } else {
-      params.strength = strength
+      params.strength = settings.strength
     }
 
     onGenerate(params)
   }
 
-  const applyPreset = (preset: (typeof PRESETS.txt2img)[0] | (typeof PRESETS.img2img)[0]) => {
-    if ("width" in preset) setWidth(preset.width)
-    if ("height" in preset) setHeight(preset.height)
-    if (preset.steps) setSteps(preset.steps)
-    if (preset.guidance_scale) setGuidanceScale(preset.guidance_scale)
-    if ("strength" in preset) setStrength(preset.strength)
+  const applyDefaultPreset = (
+    preset: (typeof DEFAULT_PRESETS.txt2img)[0] | (typeof DEFAULT_PRESETS.img2img)[0],
+  ): void => {
+    const updates: Partial<GenerationSettings> = {}
+    if ("width" in preset) updates.width = preset.width
+    if ("height" in preset) updates.height = preset.height
+    if (preset.steps) updates.steps = preset.steps
+    if (preset.guidanceScale) updates.guidanceScale = preset.guidanceScale
+    if ("strength" in preset) updates.strength = preset.strength
+    updateSettings(updates)
   }
 
-  const randomSeed = () => {
-    setSeed(Math.floor(Math.random() * 2147483647).toString())
+  const handleSavePreset = (): void => {
+    if (!presetName.trim()) return
+
+    const currentSettings: Partial<GenerationSettings> = {
+      steps: settings.steps,
+      guidanceScale: settings.guidanceScale,
+      numImages: settings.numImages,
+    }
+
+    if (mode === "txt2img") {
+      currentSettings.width = settings.width
+      currentSettings.height = settings.height
+    } else {
+      currentSettings.strength = settings.strength
+    }
+
+    savePreset(presetName.trim(), mode, currentSettings)
+    setPresetName("")
+    setShowPresetInput(false)
   }
 
-  const presets = PRESETS[mode]
+  const randomSeed = (): void => {
+    updateSettings({ seed: Math.floor(Math.random() * 2147483647).toString() })
+  }
+
+  const defaultPresets = DEFAULT_PRESETS[mode]
+  const modeCustomPresets = customPresets.filter((p) => p.mode === mode)
+
+  const handleLoRAChange = (lora: LoRAConfig): void => {
+    updateSettings({ lora })
+  }
+
+  const handleControlNetChange = (controlnet: ControlNetConfig): void => {
+    updateSettings({ controlnet })
+  }
 
   return (
     <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+      <ModelSelector value={settings.modelId} onChange={(modelId) => updateSettings({ modelId })} />
+
       <div className="space-y-2">
         <Label>Prompt</Label>
         <Textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
+          value={settings.prompt}
+          onChange={(e) => updateSettings({ prompt: e.target.value })}
           placeholder="Describe what you want to generate..."
           rows={3}
         />
@@ -118,34 +182,109 @@ export function ParameterPanel({
       <div className="space-y-2">
         <Label>Negative Prompt</Label>
         <Textarea
-          value={negativePrompt}
-          onChange={(e) => setNegativePrompt(e.target.value)}
+          value={settings.negativePrompt}
+          onChange={(e) => updateSettings({ negativePrompt: e.target.value })}
           placeholder="What to avoid..."
           rows={2}
         />
       </div>
 
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-xs text-muted-foreground">Presets:</span>
-        {presets.map((preset) => (
-          <Button
-            key={preset.name}
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-6 px-2 text-xs"
-            onClick={() => applyPreset(preset)}
-          >
-            {preset.name}
-          </Button>
-        ))}
+      <LoRAPanel config={settings.lora} onChange={handleLoRAChange} />
+
+      <ControlNetPanel config={settings.controlnet} onChange={handleControlNetChange} />
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-muted-foreground">Presets:</span>
+          <div className="flex gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => setShowPresetInput(!showPresetInput)}
+              title="Save current settings as preset"
+            >
+              <Save className="h-3 w-3" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={resetSettings}
+              title="Reset to defaults"
+            >
+              <RotateCcw className="h-3 w-3" />
+            </Button>
+          </div>
+        </div>
+
+        {showPresetInput && (
+          <div className="flex gap-2">
+            <input
+              type="text"
+              className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              value={presetName}
+              onChange={(e) => setPresetName(e.target.value)}
+              placeholder="Preset name..."
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8"
+              onClick={handleSavePreset}
+            >
+              Save
+            </Button>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          {defaultPresets.map((preset) => (
+            <Button
+              key={preset.name}
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-xs"
+              onClick={() => applyDefaultPreset(preset)}
+            >
+              {preset.name}
+            </Button>
+          ))}
+          {modeCustomPresets.map((preset) => (
+            <div key={preset.id} className="group relative">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="h-6 px-2 pr-6 text-xs"
+                onClick={() => applyPreset(preset)}
+              >
+                {preset.name}
+              </Button>
+              <button
+                type="button"
+                className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100"
+                onClick={() => deletePreset(preset.id)}
+              >
+                <Trash2 className="h-3 w-3 text-destructive" />
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
 
       {mode === "txt2img" ? (
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-2">
             <Label>Width</Label>
-            <Select value={width.toString()} onValueChange={(v) => setWidth(Number(v))}>
+            <Select
+              value={settings.width.toString()}
+              onValueChange={(v) => updateSettings({ width: Number(v) })}
+            >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -160,7 +299,10 @@ export function ParameterPanel({
           </div>
           <div className="space-y-2">
             <Label>Height</Label>
-            <Select value={height.toString()} onValueChange={(v) => setHeight(Number(v))}>
+            <Select
+              value={settings.height.toString()}
+              onValueChange={(v) => updateSettings({ height: Number(v) })}
+            >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -178,11 +320,11 @@ export function ParameterPanel({
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <Label>Strength</Label>
-            <span className="text-sm text-muted-foreground">{strength.toFixed(2)}</span>
+            <span className="text-sm text-muted-foreground">{settings.strength.toFixed(2)}</span>
           </div>
           <Slider
-            value={[strength]}
-            onValueChange={([v]) => setStrength(v)}
+            value={[settings.strength]}
+            onValueChange={([v]) => updateSettings({ strength: v })}
             min={0}
             max={1}
             step={0.05}
@@ -197,11 +339,11 @@ export function ParameterPanel({
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <Label>Steps</Label>
-          <span className="text-sm text-muted-foreground">{steps}</span>
+          <span className="text-sm text-muted-foreground">{settings.steps}</span>
         </div>
         <Slider
-          value={[steps]}
-          onValueChange={([v]) => setSteps(v)}
+          value={[settings.steps]}
+          onValueChange={([v]) => updateSettings({ steps: v })}
           min={10}
           max={100}
           step={5}
@@ -211,11 +353,11 @@ export function ParameterPanel({
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <Label>Guidance Scale</Label>
-          <span className="text-sm text-muted-foreground">{guidanceScale.toFixed(1)}</span>
+          <span className="text-sm text-muted-foreground">{settings.guidanceScale.toFixed(1)}</span>
         </div>
         <Slider
-          value={[guidanceScale]}
-          onValueChange={([v]) => setGuidanceScale(v)}
+          value={[settings.guidanceScale]}
+          onValueChange={([v]) => updateSettings({ guidanceScale: v })}
           min={1}
           max={20}
           step={0.5}
@@ -229,8 +371,8 @@ export function ParameterPanel({
             <input
               type="number"
               className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring md:text-sm"
-              value={seed}
-              onChange={(e) => setSeed(e.target.value)}
+              value={settings.seed}
+              onChange={(e) => updateSettings({ seed: e.target.value })}
               placeholder="Random"
             />
             <Button type="button" variant="outline" size="icon" onClick={randomSeed}>
@@ -240,7 +382,10 @@ export function ParameterPanel({
         </div>
         <div className="space-y-2">
           <Label>Images</Label>
-          <Select value={numImages.toString()} onValueChange={(v) => setNumImages(Number(v))}>
+          <Select
+            value={settings.numImages.toString()}
+            onValueChange={(v) => updateSettings({ numImages: Number(v) })}
+          >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
@@ -259,7 +404,7 @@ export function ParameterPanel({
         type="submit"
         size="lg"
         className="w-full"
-        disabled={isGenerating || !prompt.trim() || (mode === "img2img" && !hasInputImage)}
+        disabled={isGenerating || !settings.prompt.trim() || (mode === "img2img" && !hasInputImage)}
       >
         {isGenerating ? (
           <>
@@ -272,9 +417,7 @@ export function ParameterPanel({
       </Button>
 
       {mode === "img2img" && !hasInputImage && (
-        <p className="text-center text-sm text-muted-foreground">
-          Upload an input image to start
-        </p>
+        <p className="text-center text-sm text-muted-foreground">Upload an input image to start</p>
       )}
     </form>
   )

@@ -45,6 +45,7 @@ Thumbs.db
 # Misc
 *.log
 .vercel
+tsconfig.tsbuildinfo
 
 # Generated images
 outputs/

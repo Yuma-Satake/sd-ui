@@ -1,8 +1,8 @@
 "use client"
 
+import { Upload, X } from "lucide-react"
 import { useCallback } from "react"
 import { useDropzone } from "react-dropzone"
-import { Upload, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -25,7 +25,7 @@ export function ImageUploader({ currentImage, onImageSelect }: ImageUploaderProp
       }
       reader.readAsDataURL(file)
     },
-    [onImageSelect]
+    [onImageSelect],
   )
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -62,7 +62,7 @@ export function ImageUploader({ currentImage, onImageSelect }: ImageUploaderProp
         }
       }
     },
-    [onImageSelect]
+    [onImageSelect],
   )
 
   return (
@@ -71,13 +71,12 @@ export function ImageUploader({ currentImage, onImageSelect }: ImageUploaderProp
       <div
         {...getRootProps()}
         onPaste={handlePaste}
-        tabIndex={0}
         className={cn(
           "relative flex min-h-[200px] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed transition-colors",
           isDragActive
             ? "border-primary bg-primary/10"
             : "border-border hover:border-primary/50 hover:bg-muted/50",
-          currentImage && "border-solid p-2"
+          currentImage && "border-solid p-2",
         )}
       >
         <input {...getInputProps()} />

@@ -1,10 +1,25 @@
-import { spawn } from "child_process"
-import path from "path"
-import { NextRequest, NextResponse } from "next/server"
+import { spawn } from "node:child_process"
+import path from "node:path"
+import { type NextRequest, NextResponse } from "next/server"
 
 const PYTHON_SCRIPT = path.join(process.cwd(), "python", "generator.py")
 
-interface Txt2ImgParams {
+type LoRAConfig = {
+  enabled: boolean
+  modelPath: string
+  weight: number
+}
+
+type ControlNetConfig = {
+  enabled: boolean
+  modelName: string
+  controlImage: string | null
+  weight: number
+  guidanceStart: number
+  guidanceEnd: number
+}
+
+type Txt2ImgParams = {
   prompt: string
   negative_prompt?: string
   width?: number
@@ -13,6 +28,9 @@ interface Txt2ImgParams {
   guidance_scale?: number
   seed?: number | null
   num_images?: number
+  model_id?: string
+  lora?: LoRAConfig
+  controlnet?: ControlNetConfig
 }
 
 async function runPython(command: string, input: Txt2ImgParams): Promise<{ images: string[] }> {
@@ -56,17 +74,29 @@ async function runPython(command: string, input: Txt2ImgParams): Promise<{ image
   })
 }
 
-export async function POST(request: NextRequest) {
+export const POST = async (request: NextRequest): Promise<NextResponse> => {
   try {
     const body = await request.json()
 
-    const { prompt, negative_prompt, width, height, steps, guidance_scale, seed, num_images } = body
+    const {
+      prompt,
+      negative_prompt,
+      width,
+      height,
+      steps,
+      guidance_scale,
+      seed,
+      num_images,
+      model_id,
+      lora,
+      controlnet,
+    } = body
 
     if (!prompt) {
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 })
     }
 
-    const result = await runPython("txt2img", {
+    const params: Txt2ImgParams = {
       prompt,
       negative_prompt: negative_prompt || "",
       width: width || 512,
@@ -75,7 +105,21 @@ export async function POST(request: NextRequest) {
       guidance_scale: guidance_scale || 7.5,
       seed: seed || null,
       num_images: num_images || 1,
-    })
+    }
+
+    if (model_id) {
+      params.model_id = model_id
+    }
+
+    if (lora) {
+      params.lora = lora
+    }
+
+    if (controlnet) {
+      params.controlnet = controlnet
+    }
+
+    const result = await runPython("txt2img", params)
 
     return NextResponse.json(result)
   } catch (error) {

@@ -4,14 +4,15 @@ import { NextResponse } from "next/server"
 
 const PYTHON_SCRIPT = path.join(process.cwd(), "python", "generator.py")
 
-interface ModelInfo {
-  model_id: string | null
-  loaded: boolean
-  cuda_available: boolean
-  device: string | null
+type ModelListResult = {
+  models: Array<{
+    id: string
+    name: string
+    path: string
+  }>
 }
 
-async function runPython(command: string): Promise<ModelInfo> {
+const runPython = (command: string): Promise<ModelListResult> => {
   return new Promise((resolve, reject) => {
     const proc = spawn("python3", [PYTHON_SCRIPT, command], {
       stdio: ["pipe", "pipe", "pipe"],
@@ -49,12 +50,12 @@ async function runPython(command: string): Promise<ModelInfo> {
   })
 }
 
-export async function GET() {
+export const GET = async (): Promise<NextResponse> => {
   try {
-    const result = await runPython("info")
+    const result = await runPython("list_models")
     return NextResponse.json(result)
   } catch (error) {
-    console.error("Model info error:", error)
+    console.error("Model list error:", error)
     const message = error instanceof Error ? error.message : "Unknown error"
     return NextResponse.json({ error: message }, { status: 500 })
   }
