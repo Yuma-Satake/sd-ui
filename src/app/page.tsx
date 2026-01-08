@@ -37,9 +37,6 @@ type GenerateParams = {
   controlnet?: ControlNetConfig
 }
 
-const PROGRESS_UPDATE_INTERVAL = 100
-const ESTIMATED_GENERATION_TIME = 15000
-
 /**
  * エラーメッセージからエラータイプを推定
  */
@@ -130,22 +127,6 @@ export default function Home(): React.ReactNode {
     markErrorAsResolved,
   } = useErrorHandler()
 
-  useEffect(() => {
-    if (!isGenerating) {
-      setProgress(0)
-      return
-    }
-
-    const startTime = Date.now()
-    const interval = setInterval(() => {
-      const elapsed = Date.now() - startTime
-      const newProgress = Math.min((elapsed / ESTIMATED_GENERATION_TIME) * 95, 95)
-      setProgress(newProgress)
-    }, PROGRESS_UPDATE_INTERVAL)
-
-    return () => clearInterval(interval)
-  }, [isGenerating])
-
   const handleImageGenerated = useCallback(
     (image: GeneratedImage) => {
       const historyImage: HistoryImage = {
@@ -192,43 +173,62 @@ export default function Home(): React.ReactNode {
         const endpoint = mode === "img2img" ? "/api/generate/img2img" : "/api/generate/txt2img"
         const requestBody = mode === "img2img" ? { ...params, init_image: inputImage } : params
 
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 120000)
-
         const response = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(requestBody),
-          signal: controller.signal,
         })
-
-        clearTimeout(timeoutId)
 
         const data = await response.json()
 
         if (!response.ok) {
-          const errorMessage = data.error || "Generation failed"
-          throw new Error(errorMessage)
+          throw new Error(data.error || "Failed to start generation")
         }
 
-        setProgress(100)
+        const { jobId } = data
 
-        const newImages: HistoryImage[] = data.images.map((img: string, idx: number) => ({
-          id: `${Date.now()}-${idx}`,
-          image: img,
-          prompt: params.prompt,
-          mode,
-          timestamp: new Date().toISOString(),
-        }))
+        const pollInterval = 1000
+        const maxPolls = 600
 
-        addImages(newImages)
+        for (let i = 0; i < maxPolls; i++) {
+          await new Promise((resolve) => setTimeout(resolve, pollInterval))
 
-        toast({
-          title: "Generation Complete",
-          description: `${data.images.length} image(s) generated successfully`,
-          variant: "success",
-          duration: 3000,
-        })
+          const statusResponse = await fetch(`/api/job/${jobId}`)
+          const statusData = await statusResponse.json()
+
+          if (statusData.status === "completed") {
+            setProgress(100)
+
+            const newImages: HistoryImage[] = statusData.result.images.map(
+              (img: string, idx: number) => ({
+                id: `${Date.now()}-${idx}`,
+                image: img,
+                prompt: params.prompt,
+                mode,
+                timestamp: new Date().toISOString(),
+              }),
+            )
+
+            addImages(newImages)
+
+            toast({
+              title: "Generation Complete",
+              description: `${statusData.result.images.length} image(s) generated successfully`,
+              variant: "success",
+              duration: 3000,
+            })
+            return
+          }
+
+          if (statusData.status === "failed") {
+            throw new Error(statusData.error || "Generation failed")
+          }
+
+          const progressValue = Math.min((i / maxPolls) * 95, 95)
+          setProgress(progressValue)
+        }
+
+        throw new Error("Generation timed out")
       } catch (err) {
         const error = err instanceof Error ? err : new Error("An unknown error occurred")
         const errorType = inferErrorType(error)

@@ -1,0 +1,63 @@
+type JobStatus = "pending" | "processing" | "completed" | "failed"
+
+type Job = {
+  id: string
+  status: JobStatus
+  result?: { images: string[] }
+  error?: string
+  createdAt: number
+}
+
+const jobs = new Map<string, Job>()
+
+export const jobStore = {
+  create(id: string): Job {
+    const job: Job = {
+      id,
+      status: "pending",
+      createdAt: Date.now(),
+    }
+    jobs.set(id, job)
+    return job
+  },
+
+  get(id: string): Job | undefined {
+    return jobs.get(id)
+  },
+
+  setProcessing(id: string): void {
+    const job = jobs.get(id)
+    if (job) {
+      job.status = "processing"
+    }
+  },
+
+  setCompleted(id: string, result: { images: string[] }): void {
+    const job = jobs.get(id)
+    if (job) {
+      job.status = "completed"
+      job.result = result
+    }
+  },
+
+  setFailed(id: string, error: string): void {
+    const job = jobs.get(id)
+    if (job) {
+      job.status = "failed"
+      job.error = error
+    }
+  },
+
+  delete(id: string): void {
+    jobs.delete(id)
+  },
+
+  cleanup(maxAgeMs: number = 3600000): void {
+    const now = Date.now()
+    for (const [id, job] of jobs) {
+      if (now - job.createdAt > maxAgeMs) {
+        jobs.delete(id)
+      }
+    }
+  },
+}

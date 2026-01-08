@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process"
 import path from "node:path"
 import { type NextRequest, NextResponse } from "next/server"
+import { jobStore } from "@/lib/jobStore"
 
 const PYTHON_SCRIPT = path.join(process.cwd(), "python", "generator.py")
 
@@ -34,45 +35,50 @@ type Txt2ImgParams = {
   sampler?: string
 }
 
-async function runPython(command: string, input: Txt2ImgParams): Promise<{ images: string[] }> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn("uv", ["run", "python3", PYTHON_SCRIPT, command], {
-      stdio: ["pipe", "pipe", "pipe"],
-    })
+/**
+ * Pythonスクリプトをバックグラウンドで実行し、結果をjobStoreに保存する
+ */
+const runPythonInBackground = (jobId: string, command: string, input: Txt2ImgParams): void => {
+  jobStore.setProcessing(jobId)
 
-    let stdout = ""
-    let stderr = ""
-
-    proc.stdout.on("data", (data) => {
-      stdout += data.toString()
-    })
-
-    proc.stderr.on("data", (data) => {
-      stderr += data.toString()
-    })
-
-    proc.on("close", (code) => {
-      if (code !== 0) {
-        reject(new Error(stderr || `Process exited with code ${code}`))
-        return
-      }
-      try {
-        const result = JSON.parse(stdout)
-        if (result.error) {
-          reject(new Error(result.error))
-        } else {
-          resolve(result)
-        }
-      } catch {
-        reject(new Error(`Failed to parse output: ${stdout}`))
-      }
-    })
-
-    proc.on("error", reject)
-
-    proc.stdin.write(JSON.stringify(input))
-    proc.stdin.end()
+  const proc = spawn("uv", ["run", "python3", PYTHON_SCRIPT, command], {
+    stdio: ["pipe", "pipe", "pipe"],
   })
+
+  let stdout = ""
+  let stderr = ""
+
+  proc.stdout.on("data", (data) => {
+    stdout += data.toString()
+  })
+
+  proc.stderr.on("data", (data) => {
+    stderr += data.toString()
+  })
+
+  proc.on("close", (code) => {
+    if (code !== 0) {
+      jobStore.setFailed(jobId, stderr || `Process exited with code ${code}`)
+      return
+    }
+    try {
+      const result = JSON.parse(stdout)
+      if (result.error) {
+        jobStore.setFailed(jobId, result.error)
+      } else {
+        jobStore.setCompleted(jobId, result)
+      }
+    } catch {
+      jobStore.setFailed(jobId, `Failed to parse output: ${stdout}`)
+    }
+  })
+
+  proc.on("error", (error) => {
+    jobStore.setFailed(jobId, error.message)
+  })
+
+  proc.stdin.write(JSON.stringify(input))
+  proc.stdin.end()
 }
 
 export const POST = async (request: NextRequest): Promise<NextResponse> => {
@@ -125,9 +131,12 @@ export const POST = async (request: NextRequest): Promise<NextResponse> => {
       params.sampler = sampler
     }
 
-    const result = await runPython("txt2img", params)
+    const jobId = `txt2img-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+    jobStore.create(jobId)
 
-    return NextResponse.json(result)
+    runPythonInBackground(jobId, "txt2img", params)
+
+    return NextResponse.json({ jobId })
   } catch (error) {
     console.error("txt2img error:", error)
     const message = error instanceof Error ? error.message : "Unknown error"
