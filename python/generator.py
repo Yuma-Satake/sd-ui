@@ -18,7 +18,16 @@ from diffusers import (
     StableDiffusionImg2ImgPipeline,
     StableDiffusionControlNetPipeline,
     ControlNetModel,
-    DPMSolverMultistepScheduler
+    DPMSolverMultistepScheduler,
+    DDIMScheduler,
+    PNDMScheduler,
+    EulerDiscreteScheduler,
+    EulerAncestralDiscreteScheduler,
+    LMSDiscreteScheduler,
+    HeunDiscreteScheduler,
+    KDPM2DiscreteScheduler,
+    KDPM2AncestralDiscreteScheduler,
+    UniPCMultistepScheduler,
 )
 from PIL import Image
 
@@ -41,6 +50,38 @@ CONTROLNET_MODELS = [
     {"name": "lllyasviel/sd-controlnet-mlsd", "type": "mlsd"},
     {"name": "lllyasviel/sd-controlnet-seg", "type": "seg"},
     {"name": "lllyasviel/sd-controlnet-normal", "type": "normal"},
+]
+
+SCHEDULERS = {
+    "dpm++_2m": DPMSolverMultistepScheduler,
+    "dpm++_2m_karras": lambda config: DPMSolverMultistepScheduler.from_config(config, use_karras_sigmas=True),
+    "dpm++_sde": lambda config: DPMSolverMultistepScheduler.from_config(config, algorithm_type="sde-dpmsolver++"),
+    "dpm++_sde_karras": lambda config: DPMSolverMultistepScheduler.from_config(config, algorithm_type="sde-dpmsolver++", use_karras_sigmas=True),
+    "ddim": DDIMScheduler,
+    "pndm": PNDMScheduler,
+    "euler": EulerDiscreteScheduler,
+    "euler_a": EulerAncestralDiscreteScheduler,
+    "lms": LMSDiscreteScheduler,
+    "heun": HeunDiscreteScheduler,
+    "dpm2": KDPM2DiscreteScheduler,
+    "dpm2_a": KDPM2AncestralDiscreteScheduler,
+    "unipc": UniPCMultistepScheduler,
+}
+
+SAMPLER_LIST = [
+    {"id": "dpm++_2m", "name": "DPM++ 2M"},
+    {"id": "dpm++_2m_karras", "name": "DPM++ 2M Karras"},
+    {"id": "dpm++_sde", "name": "DPM++ SDE"},
+    {"id": "dpm++_sde_karras", "name": "DPM++ SDE Karras"},
+    {"id": "euler", "name": "Euler"},
+    {"id": "euler_a", "name": "Euler Ancestral"},
+    {"id": "ddim", "name": "DDIM"},
+    {"id": "pndm", "name": "PNDM"},
+    {"id": "lms", "name": "LMS"},
+    {"id": "heun", "name": "Heun"},
+    {"id": "dpm2", "name": "DPM2"},
+    {"id": "dpm2_a", "name": "DPM2 Ancestral"},
+    {"id": "unipc", "name": "UniPC"},
 ]
 
 
@@ -131,6 +172,27 @@ class StableDiffusionGenerator:
             except Exception as e:
                 print(f"Failed to unload LoRA: {e}", file=sys.stderr)
 
+    def set_scheduler(self, sampler_id: str):
+        """Set the scheduler for the pipeline"""
+        if self._pipe is None:
+            return
+
+        if sampler_id not in SCHEDULERS:
+            sampler_id = "dpm++_2m"
+
+        scheduler_class = SCHEDULERS[sampler_id]
+
+        if callable(scheduler_class) and not isinstance(scheduler_class, type):
+            self._pipe.scheduler = scheduler_class(self._pipe.scheduler.config)
+        else:
+            self._pipe.scheduler = scheduler_class.from_config(self._pipe.scheduler.config)
+
+        if self._img2img_pipe is not None:
+            self._img2img_pipe.scheduler = self._pipe.scheduler
+
+        if self._controlnet_pipe is not None:
+            self._controlnet_pipe.scheduler = self._pipe.scheduler
+
     def load_controlnet(self, controlnet_name: str):
         """Load a ControlNet model"""
         if self._controlnet_model is not None and self._controlnet_model == controlnet_name:
@@ -175,12 +237,16 @@ class StableDiffusionGenerator:
         num_images: int = 1,
         model_id: Optional[str] = None,
         lora: Optional[Dict[str, Any]] = None,
-        controlnet: Optional[Dict[str, Any]] = None
+        controlnet: Optional[Dict[str, Any]] = None,
+        sampler: Optional[str] = None
     ) -> list:
         if model_id and model_id != self._model_id:
             self.load_model(model_id)
         elif self._pipe is None:
             self.load_model()
+
+        if sampler:
+            self.set_scheduler(sampler)
 
         self.unload_loras()
         if lora and lora.get("enabled") and lora.get("modelPath"):
@@ -236,12 +302,16 @@ class StableDiffusionGenerator:
         num_images: int = 1,
         model_id: Optional[str] = None,
         lora: Optional[Dict[str, Any]] = None,
-        controlnet: Optional[Dict[str, Any]] = None
+        controlnet: Optional[Dict[str, Any]] = None,
+        sampler: Optional[str] = None
     ) -> list:
         if model_id and model_id != self._model_id:
             self.load_model(model_id)
         elif self._img2img_pipe is None:
             self.load_model()
+
+        if sampler:
+            self.set_scheduler(sampler)
 
         self.unload_loras()
         if lora and lora.get("enabled") and lora.get("modelPath"):
@@ -344,6 +414,9 @@ def main():
         elif command == "list_controlnets":
             result = gen.list_controlnets()
 
+        elif command == "list_samplers":
+            result = {"samplers": SAMPLER_LIST}
+
         elif command == "txt2img":
             params = json.loads(sys.stdin.read())
             images = gen.txt2img(
@@ -358,6 +431,7 @@ def main():
                 model_id=params.get("model_id"),
                 lora=params.get("lora"),
                 controlnet=params.get("controlnet"),
+                sampler=params.get("sampler"),
             )
             result = {"images": images}
 
@@ -375,6 +449,7 @@ def main():
                 model_id=params.get("model_id"),
                 lora=params.get("lora"),
                 controlnet=params.get("controlnet"),
+                sampler=params.get("sampler"),
             )
             result = {"images": images}
 

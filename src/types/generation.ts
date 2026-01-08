@@ -2,6 +2,26 @@ export type GenerationMode = "txt2img" | "img2img"
 
 export type QueueItemStatus = "pending" | "processing" | "completed" | "error"
 
+export type SamplerType =
+  | "dpm++_2m"
+  | "dpm++_2m_karras"
+  | "dpm++_sde"
+  | "dpm++_sde_karras"
+  | "euler"
+  | "euler_a"
+  | "ddim"
+  | "pndm"
+  | "lms"
+  | "heun"
+  | "dpm2"
+  | "dpm2_a"
+  | "unipc"
+
+export type SamplerInfo = {
+  id: SamplerType
+  name: string
+}
+
 export type ModelInfo = {
   id: string
   name: string
@@ -34,6 +54,7 @@ export type GenerateParams = {
   seed: number | null
   num_images: number
   model_id?: string
+  sampler?: SamplerType
   lora?: LoRAConfig
   controlnet?: ControlNetConfig
 }

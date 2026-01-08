@@ -17,7 +17,7 @@ import {
 import { Slider } from "@/components/ui/slider"
 import { Textarea } from "@/components/ui/textarea"
 import type { CustomPreset, GenerationSettings } from "@/hooks/useSettings"
-import type { ControlNetConfig, LoRAConfig } from "@/types/generation"
+import type { ControlNetConfig, LoRAConfig, SamplerType } from "@/types/generation"
 
 type GenerateParams = {
   prompt: string
@@ -30,6 +30,7 @@ type GenerateParams = {
   seed: number | null
   num_images: number
   model_id?: string
+  sampler?: SamplerType
   lora?: LoRAConfig
   controlnet?: ControlNetConfig
 }
@@ -51,6 +52,22 @@ type ParameterPanelProps = {
   deletePreset: (id: string) => void
   applyPreset: (preset: CustomPreset) => void
 }
+
+const SAMPLER_OPTIONS: { id: SamplerType; name: string }[] = [
+  { id: "dpm++_2m", name: "DPM++ 2M" },
+  { id: "dpm++_2m_karras", name: "DPM++ 2M Karras" },
+  { id: "dpm++_sde", name: "DPM++ SDE" },
+  { id: "dpm++_sde_karras", name: "DPM++ SDE Karras" },
+  { id: "euler", name: "Euler" },
+  { id: "euler_a", name: "Euler Ancestral" },
+  { id: "ddim", name: "DDIM" },
+  { id: "pndm", name: "PNDM" },
+  { id: "lms", name: "LMS" },
+  { id: "heun", name: "Heun" },
+  { id: "dpm2", name: "DPM2" },
+  { id: "dpm2_a", name: "DPM2 Ancestral" },
+  { id: "unipc", name: "UniPC" },
+]
 
 const DEFAULT_PRESETS = {
   txt2img: [
@@ -97,6 +114,7 @@ export const ParameterPanel = ({
       seed: settings.seed ? Number.parseInt(settings.seed, 10) : null,
       num_images: settings.numImages,
       model_id: settings.modelId,
+      sampler: settings.sampler,
     }
 
     if (settings.lora.enabled && settings.lora.modelPath) {
@@ -168,6 +186,25 @@ export const ParameterPanel = ({
   return (
     <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
       <ModelSelector value={settings.modelId} onChange={(modelId) => updateSettings({ modelId })} />
+
+      <div className="space-y-2">
+        <Label>Sampler</Label>
+        <Select
+          value={settings.sampler}
+          onValueChange={(v) => updateSettings({ sampler: v as SamplerType })}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SAMPLER_OPTIONS.map((sampler) => (
+              <SelectItem key={sampler.id} value={sampler.id}>
+                {sampler.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
       <div className="space-y-2">
         <Label>Prompt</Label>
