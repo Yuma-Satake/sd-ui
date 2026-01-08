@@ -13,7 +13,7 @@ type LoRAListResult = {
 
 const runPython = (command: string): Promise<LoRAListResult> => {
   return new Promise((resolve, reject) => {
-    const proc = spawn("python3", [PYTHON_SCRIPT, command], {
+    const proc = spawn("uv", ["run", "python3", PYTHON_SCRIPT, command], {
       stdio: ["pipe", "pipe", "pipe"],
     })
 
