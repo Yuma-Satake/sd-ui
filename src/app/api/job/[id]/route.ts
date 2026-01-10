@@ -9,12 +9,18 @@ export const GET = async (
   const job = jobStore.get(id)
 
   if (!job) {
-    return NextResponse.json({ error: "Job not found" }, { status: 404 })
+    return NextResponse.json({
+      id,
+      status: "not_found",
+      result: null,
+      error: null,
+    })
   }
 
   return NextResponse.json({
     id: job.id,
     status: job.status,
+    progress: job.progress ?? 0,
     result: job.result,
     error: job.error,
   })

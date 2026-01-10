@@ -124,6 +124,7 @@ class StableDiffusionGenerator:
             self._pipe.scheduler.config
         )
         self._pipe = self._pipe.to(device)
+        print(f"[SD Generator] Model loaded on device: {device}, dtype: {dtype}", file=sys.stderr)
 
         self._img2img_pipe = StableDiffusionImg2ImgPipeline(
             vae=self._pipe.vae,
@@ -244,6 +245,7 @@ class StableDiffusionGenerator:
         controlnet: Optional[Dict[str, Any]] = None,
         sampler: Optional[str] = None
     ) -> list:
+        print(f"[SD Generator] txt2img called, current device: {getattr(self, '_device', 'not set')}", file=sys.stderr)
         if model_id and model_id != self._model_id:
             self.load_model(model_id)
         elif self._pipe is None:
@@ -266,6 +268,7 @@ class StableDiffusionGenerator:
             control_image = Image.open(io.BytesIO(control_image_data)).convert("RGB")
             control_image = control_image.resize((width, height))
 
+            self._current_total_steps = steps
             result = self._controlnet_pipe(
                 prompt=prompt,
                 negative_prompt=negative_prompt or None,
@@ -279,8 +282,10 @@ class StableDiffusionGenerator:
                 controlnet_conditioning_scale=controlnet.get("weight", 1.0),
                 control_guidance_start=controlnet.get("guidanceStart", 0.0),
                 control_guidance_end=controlnet.get("guidanceEnd", 1.0),
+                callback_on_step_end=self._progress_callback,
             )
         else:
+            self._current_total_steps = steps
             result = self._pipe(
                 prompt=prompt,
                 negative_prompt=negative_prompt or None,
@@ -289,10 +294,17 @@ class StableDiffusionGenerator:
                 num_inference_steps=steps,
                 guidance_scale=guidance_scale,
                 generator=generator,
-                num_images_per_prompt=num_images
+                num_images_per_prompt=num_images,
+                callback_on_step_end=self._progress_callback,
             )
 
         return [self._encode_image(img) for img in result.images]
+
+    def _progress_callback(self, pipe, step: int, timestep: int, callback_kwargs: dict):
+        total_steps = getattr(self, '_current_total_steps', 30)
+        progress = int((step / total_steps) * 100)
+        print(json.dumps({"type": "progress", "step": step, "total": total_steps, "progress": progress}), file=sys.stderr, flush=True)
+        return callback_kwargs
 
     def img2img(
         self,
@@ -309,6 +321,7 @@ class StableDiffusionGenerator:
         controlnet: Optional[Dict[str, Any]] = None,
         sampler: Optional[str] = None
     ) -> list:
+        print(f"[SD Generator] img2img called, current device: {getattr(self, '_device', 'not set')}", file=sys.stderr)
         if model_id and model_id != self._model_id:
             self.load_model(model_id)
         elif self._img2img_pipe is None:
@@ -328,6 +341,7 @@ class StableDiffusionGenerator:
         if seed is not None:
             generator = torch.Generator(device=self._device).manual_seed(seed)
 
+        self._current_total_steps = steps
         result = self._img2img_pipe(
             prompt=prompt,
             image=image,
@@ -336,7 +350,8 @@ class StableDiffusionGenerator:
             num_inference_steps=steps,
             guidance_scale=guidance_scale,
             generator=generator,
-            num_images_per_prompt=num_images
+            num_images_per_prompt=num_images,
+            callback_on_step_end=self._progress_callback,
         )
 
         return [self._encode_image(img) for img in result.images]
@@ -351,6 +366,7 @@ class StableDiffusionGenerator:
             "model_id": self._model_id,
             "loaded": self._pipe is not None,
             "cuda_available": torch.cuda.is_available(),
+            "mps_available": torch.backends.mps.is_available(),
             "device": getattr(self, '_device', None),
             "loaded_loras": self._loaded_loras,
             "controlnet_model": self._controlnet_model,

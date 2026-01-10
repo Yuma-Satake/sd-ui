@@ -50,7 +50,20 @@ function runPythonInBackground(jobId: string, command: string, input: Img2ImgPar
   })
 
   proc.stderr.on("data", (data) => {
-    stderr += data.toString()
+    const msg = data.toString()
+    stderr += msg
+    for (const line of msg.split("\n")) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      try {
+        const parsed = JSON.parse(trimmed)
+        if (parsed.type === "progress") {
+          jobStore.setProgress(jobId, parsed.progress)
+        }
+      } catch {
+        console.log("[Python]", trimmed)
+      }
+    }
   })
 
   proc.on("close", (code) => {

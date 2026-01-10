@@ -356,7 +356,10 @@ export const ParameterPanel = ({
       ) : (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <Label>Strength</Label>
+            <div>
+              <Label>Strength</Label>
+              <p className="text-xs text-muted-foreground">元画像からの変化量</p>
+            </div>
             <span className="text-sm text-muted-foreground">{settings.strength.toFixed(2)}</span>
           </div>
           <Slider
@@ -375,7 +378,10 @@ export const ParameterPanel = ({
 
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <Label>Steps</Label>
+          <div>
+            <Label>Steps</Label>
+            <p className="text-xs text-muted-foreground">生成ステップ数（速度に影響）</p>
+          </div>
           <span className="text-sm text-muted-foreground">{settings.steps}</span>
         </div>
         <Slider
@@ -389,7 +395,10 @@ export const ParameterPanel = ({
 
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <Label>Guidance Scale</Label>
+          <div>
+            <Label>Guidance Scale</Label>
+            <p className="text-xs text-muted-foreground">プロンプトへの忠実度</p>
+          </div>
           <span className="text-sm text-muted-foreground">{settings.guidanceScale.toFixed(1)}</span>
         </div>
         <Slider
@@ -403,7 +412,10 @@ export const ParameterPanel = ({
 
       <div className="grid grid-cols-[1fr_80px] gap-3">
         <div className="space-y-2">
-          <Label>Seed</Label>
+          <div>
+            <Label>Seed</Label>
+            <p className="text-xs text-muted-foreground">乱数シード（再現性）</p>
+          </div>
           <div className="flex gap-2">
             <input
               type="number"
@@ -418,7 +430,10 @@ export const ParameterPanel = ({
           </div>
         </div>
         <div className="space-y-2">
-          <Label>Images</Label>
+          <div>
+            <Label>Images</Label>
+            <p className="text-xs text-muted-foreground">生成枚数</p>
+          </div>
           <Select
             value={settings.numImages.toString()}
             onValueChange={(v) => updateSettings({ numImages: Number(v) })}

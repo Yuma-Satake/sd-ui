@@ -82,6 +82,7 @@ export default function Home(): React.ReactNode {
   const [showErrorLog, setShowErrorLog] = useState(false)
   const [lastParams, setLastParams] = useState<GenerateParams | null>(null)
   const [sidebarTab, setSidebarTab] = useState<"generate" | "batch">("generate")
+  const [generationStartTime, setGenerationStartTime] = useState<number | null>(null)
 
   const { history, addImages, clearHistory, removeImage } = useImageHistory()
   const {
@@ -162,9 +163,22 @@ export default function Home(): React.ReactNode {
     [toast],
   )
 
+  const getEstimatedTimeRemaining = useCallback((): string => {
+    if (!generationStartTime || progress <= 0) return ""
+    const elapsed = Date.now() - generationStartTime
+    const estimatedTotal = elapsed / (progress / 100)
+    const remaining = Math.max(0, estimatedTotal - elapsed)
+    const seconds = Math.ceil(remaining / 1000)
+    if (seconds < 60) return `残り約${seconds}秒`
+    const minutes = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `残り約${minutes}分${secs}秒`
+  }, [generationStartTime, progress])
+
   const handleGenerate = useCallback(
     async (params: GenerateParams): Promise<void> => {
       setIsGenerating(true)
+      setGenerationStartTime(Date.now())
       setProgress(0)
       clearCurrentError()
       setLastParams(params)
@@ -187,7 +201,7 @@ export default function Home(): React.ReactNode {
 
         const { jobId } = data
 
-        const pollInterval = 1000
+        const pollInterval = 3000
         const maxPolls = 600
 
         for (let i = 0; i < maxPolls; i++) {
@@ -224,8 +238,12 @@ export default function Home(): React.ReactNode {
             throw new Error(statusData.error || "Generation failed")
           }
 
-          const progressValue = Math.min((i / maxPolls) * 95, 95)
-          setProgress(progressValue)
+          if (statusData.progress !== undefined && statusData.progress > 0) {
+            setProgress(statusData.progress)
+          } else {
+            const progressValue = Math.min((i / maxPolls) * 95, 95)
+            setProgress(progressValue)
+          }
         }
 
         throw new Error("Generation timed out")
@@ -237,6 +255,7 @@ export default function Home(): React.ReactNode {
         showErrorToast(appError)
       } finally {
         setIsGenerating(false)
+        setGenerationStartTime(null)
       }
     },
     [mode, inputImage, addImages, clearCurrentError, handleError, showErrorToast, toast],
@@ -324,9 +343,9 @@ export default function Home(): React.ReactNode {
       </header>
 
       {isGenerating && (
-        <div className="border-b bg-card px-6 py-3">
+        <div className="sticky top-0 z-50 border-b bg-card px-6 py-3 shadow-md">
           <div className="mb-2 flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Generating...</span>
+            <span className="text-muted-foreground">生成中... {getEstimatedTimeRemaining()}</span>
             <span className="font-medium">{Math.round(progress)}%</span>
           </div>
           <Progress value={progress} className="h-2" />

@@ -3,6 +3,7 @@ type JobStatus = "pending" | "processing" | "completed" | "failed"
 type Job = {
   id: string
   status: JobStatus
+  progress?: number
   result?: { images: string[] }
   error?: string
   createdAt: number
@@ -29,6 +30,13 @@ export const jobStore = {
     const job = jobs.get(id)
     if (job) {
       job.status = "processing"
+    }
+  },
+
+  setProgress(id: string, progress: number): void {
+    const job = jobs.get(id)
+    if (job) {
+      job.progress = progress
     }
   },
 
