@@ -1,11 +1,14 @@
 "use client"
 
-import { useCallback } from "react"
+import { useCallback, useEffect } from "react"
 import type { ControlNetConfig, LoRAConfig, SamplerType } from "@/types/generation"
 import { useLocalStorage } from "./useLocalStorage"
 
 const SETTINGS_KEY = "sd-ui-settings"
 const PRESETS_KEY = "sd-ui-custom-presets"
+
+const REMOVED_MODEL_IDS = new Set(["runwayml/stable-diffusion-v1-5"])
+const CURRENT_MODEL_ID = "stable-diffusion-v1-5/stable-diffusion-v1-5"
 
 export type GenerationSettings = {
   prompt: string
@@ -55,7 +58,7 @@ const DEFAULT_SETTINGS: GenerationSettings = {
   guidanceScale: 7.5,
   seed: "",
   numImages: 1,
-  modelId: "runwayml/stable-diffusion-v1-5",
+  modelId: CURRENT_MODEL_ID,
   lora: DEFAULT_LORA,
   controlnet: DEFAULT_CONTROLNET,
   sampler: "dpm++_2m",
@@ -85,6 +88,12 @@ export const useSettings = (): UseSettingsReturn => {
     DEFAULT_SETTINGS,
   )
   const [customPresets, setCustomPresets] = useLocalStorage<CustomPreset[]>(PRESETS_KEY, [])
+
+  useEffect(() => {
+    if (REMOVED_MODEL_IDS.has(settings.modelId)) {
+      setSettings((prev) => ({ ...prev, modelId: CURRENT_MODEL_ID }))
+    }
+  }, [settings.modelId, setSettings])
 
   const updateSettings = useCallback(
     (updates: Partial<GenerationSettings>) => {

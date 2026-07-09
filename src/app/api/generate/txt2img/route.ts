@@ -119,13 +119,13 @@ export const POST = async (request: NextRequest): Promise<NextResponse> => {
 
     const params: Txt2ImgParams = {
       prompt,
-      negative_prompt: negative_prompt || "",
-      width: width || 512,
-      height: height || 512,
-      steps: steps || 30,
-      guidance_scale: guidance_scale || 7.5,
-      seed: seed || null,
-      num_images: num_images || 1,
+      negative_prompt: negative_prompt ?? "",
+      width: width ?? 512,
+      height: height ?? 512,
+      steps: steps ?? 30,
+      guidance_scale: guidance_scale ?? 7.5,
+      seed: seed ?? null,
+      num_images: num_images ?? 1,
     }
 
     if (model_id) {

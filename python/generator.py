@@ -35,8 +35,10 @@ MODELS_DIR = Path(os.environ.get("SD_MODELS_DIR", "./models"))
 LORAS_DIR = Path(os.environ.get("SD_LORAS_DIR", "./loras"))
 CONTROLNET_DIR = Path(os.environ.get("SD_CONTROLNET_DIR", "./controlnets"))
 
+DEFAULT_MODEL_ID = "stable-diffusion-v1-5/stable-diffusion-v1-5"
+
 DEFAULT_MODELS = [
-    {"id": "runwayml/stable-diffusion-v1-5", "name": "Stable Diffusion v1.5", "path": "runwayml/stable-diffusion-v1-5"},
+    {"id": DEFAULT_MODEL_ID, "name": "Stable Diffusion v1.5", "path": DEFAULT_MODEL_ID},
     {"id": "stabilityai/stable-diffusion-2-1", "name": "Stable Diffusion v2.1", "path": "stabilityai/stable-diffusion-2-1"},
     {"id": "CompVis/stable-diffusion-v1-4", "name": "Stable Diffusion v1.4", "path": "CompVis/stable-diffusion-v1-4"},
 ]
@@ -100,7 +102,7 @@ class StableDiffusionGenerator:
             cls._instance = cls()
         return cls._instance
 
-    def load_model(self, model_id: str = "runwayml/stable-diffusion-v1-5"):
+    def load_model(self, model_id: str = DEFAULT_MODEL_ID):
         if self._pipe is not None and self._model_id == model_id:
             return True
 
@@ -421,7 +423,7 @@ def main():
             result = gen.get_info()
 
         elif command == "load":
-            model_id = sys.argv[2] if len(sys.argv) > 2 else "runwayml/stable-diffusion-v1-5"
+            model_id = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_MODEL_ID
             gen.load_model(model_id)
             result = {"status": "success", "model_id": model_id}
 

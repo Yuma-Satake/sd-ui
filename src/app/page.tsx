@@ -79,6 +79,7 @@ export default function Home(): React.ReactNode {
   const [inputImage, setInputImage] = useState<string | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [progress, setProgress] = useState(0)
+  const [hasReceivedProgress, setHasReceivedProgress] = useState(false)
   const [showErrorLog, setShowErrorLog] = useState(false)
   const [lastParams, setLastParams] = useState<GenerateParams | null>(null)
   const [sidebarTab, setSidebarTab] = useState<"generate" | "batch">("generate")
@@ -175,11 +176,18 @@ export default function Home(): React.ReactNode {
     return `残り約${minutes}分${secs}秒`
   }, [generationStartTime, progress])
 
+  const getGeneratingLabel = useCallback((): string => {
+    if (!hasReceivedProgress) return "モデル準備中... (初回は数分かかることがあります)"
+    const remaining = getEstimatedTimeRemaining()
+    return remaining ? `生成中... ${remaining}` : "生成中..."
+  }, [hasReceivedProgress, getEstimatedTimeRemaining])
+
   const handleGenerate = useCallback(
     async (params: GenerateParams): Promise<void> => {
       setIsGenerating(true)
       setGenerationStartTime(Date.now())
       setProgress(0)
+      setHasReceivedProgress(false)
       clearCurrentError()
       setLastParams(params)
 
@@ -202,9 +210,13 @@ export default function Home(): React.ReactNode {
         const { jobId } = data
 
         const pollInterval = 3000
-        const maxPolls = 600
+        const maxWaitMs = 60 * 60 * 1000
+        const noProgressGraceMs = 15 * 60 * 1000
+        const pollStartTime = Date.now()
+        let sawProgress = false
+        let lastProgressUpdateTime = Date.now()
 
-        for (let i = 0; i < maxPolls; i++) {
+        while (true) {
           await new Promise((resolve) => setTimeout(resolve, pollInterval))
 
           const statusResponse = await fetch(`/api/job/${jobId}`)
@@ -240,13 +252,23 @@ export default function Home(): React.ReactNode {
 
           if (statusData.progress !== undefined && statusData.progress > 0) {
             setProgress(statusData.progress)
-          } else {
-            const progressValue = Math.min((i / maxPolls) * 95, 95)
-            setProgress(progressValue)
+            if (!sawProgress) {
+              sawProgress = true
+              setHasReceivedProgress(true)
+            }
+            lastProgressUpdateTime = Date.now()
+          }
+
+          const now = Date.now()
+          if (now - pollStartTime > maxWaitMs) {
+            throw new Error("Generation timed out (60 minutes)")
+          }
+          if (!sawProgress && now - lastProgressUpdateTime > noProgressGraceMs) {
+            throw new Error(
+              "モデル読み込みまたは初回ダウンロードが 15 分以上応答していません。ネットワーク・モデルIDを確認してください。",
+            )
           }
         }
-
-        throw new Error("Generation timed out")
       } catch (err) {
         const error = err instanceof Error ? err : new Error("An unknown error occurred")
         const errorType = inferErrorType(error)
@@ -256,6 +278,7 @@ export default function Home(): React.ReactNode {
       } finally {
         setIsGenerating(false)
         setGenerationStartTime(null)
+        setHasReceivedProgress(false)
       }
     },
     [mode, inputImage, addImages, clearCurrentError, handleError, showErrorToast, toast],
@@ -345,8 +368,10 @@ export default function Home(): React.ReactNode {
       {isGenerating && (
         <div className="sticky top-0 z-50 border-b bg-card px-6 py-3 shadow-md">
           <div className="mb-2 flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">生成中... {getEstimatedTimeRemaining()}</span>
-            <span className="font-medium">{Math.round(progress)}%</span>
+            <span className="text-muted-foreground">{getGeneratingLabel()}</span>
+            <span className="font-medium">
+              {hasReceivedProgress ? `${Math.round(progress)}%` : ""}
+            </span>
           </div>
           <Progress value={progress} className="h-2" />
         </div>

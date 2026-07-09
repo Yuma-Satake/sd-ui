@@ -21,7 +21,7 @@ type ModelSelectorProps = {
   onChange: (modelId: string) => void
 }
 
-const DEFAULT_MODEL = "runwayml/stable-diffusion-v1-5"
+const DEFAULT_MODEL = "stable-diffusion-v1-5/stable-diffusion-v1-5"
 
 export const ModelSelector = ({ value, onChange }: ModelSelectorProps): React.ReactNode => {
   const [models, setModels] = useState<Model[]>([])
