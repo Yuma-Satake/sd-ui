@@ -15,6 +15,7 @@ import { Toaster } from "@/components/ui/toaster"
 import { useErrorHandler } from "@/hooks/use-error-handler"
 import { useToast } from "@/hooks/use-toast"
 import { useBatchProcessing } from "@/hooks/useBatchProcessing"
+import { useDeviceInfo } from "@/hooks/useDeviceInfo"
 import { useGenerationQueue } from "@/hooks/useGenerationQueue"
 import { type HistoryImage, useImageHistory } from "@/hooks/useImageHistory"
 import { useSettings } from "@/hooks/useSettings"
@@ -119,6 +120,8 @@ export default function Home(): React.ReactNode {
     resumeBatch,
   } = useBatchProcessing()
 
+  const { info: deviceInfo, isGpuAvailable, isLoading: isDeviceLoading } = useDeviceInfo()
+
   const { toasts, toast, dismiss } = useToast()
   const {
     errorLog,
@@ -184,6 +187,17 @@ export default function Home(): React.ReactNode {
 
   const handleGenerate = useCallback(
     async (params: GenerateParams): Promise<void> => {
+      if (!isGpuAvailable) {
+        toast({
+          title: "GPU が利用できません",
+          description:
+            "画像生成には CUDA GPU または Apple Silicon (MPS) が必要です。現在の環境では実行できません。",
+          variant: "destructive",
+          duration: 8000,
+        })
+        return
+      }
+
       setIsGenerating(true)
       setGenerationStartTime(Date.now())
       setProgress(0)
@@ -281,7 +295,16 @@ export default function Home(): React.ReactNode {
         setHasReceivedProgress(false)
       }
     },
-    [mode, inputImage, addImages, clearCurrentError, handleError, showErrorToast, toast],
+    [
+      mode,
+      inputImage,
+      addImages,
+      clearCurrentError,
+      handleError,
+      showErrorToast,
+      toast,
+      isGpuAvailable,
+    ],
   )
 
   const handleRetry = useCallback((): void => {
@@ -365,6 +388,24 @@ export default function Home(): React.ReactNode {
         </div>
       </header>
 
+      {!isDeviceLoading && !isGpuAvailable && (
+        <div className="border-b border-destructive/40 bg-destructive/10 px-6 py-3">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-destructive" />
+            <div className="flex-1">
+              <p className="font-medium text-destructive">
+                GPU が検出できないため画像生成は無効化されています
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                CUDA 対応 GPU (NVIDIA) または Apple Silicon (M シリーズ Mac / MPS)
+                の環境が必要です。 現在のデバイス:{" "}
+                <span className="font-mono">{deviceInfo?.device ?? "cpu / unknown"}</span>
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isGenerating && (
         <div className="sticky top-0 z-50 border-b bg-card px-6 py-3 shadow-md">
           <div className="mb-2 flex items-center justify-between text-sm">
@@ -399,6 +440,7 @@ export default function Home(): React.ReactNode {
                 onGenerate={handleGenerate}
                 isGenerating={isGenerating || isProcessing}
                 hasInputImage={!!inputImage}
+                isGpuAvailable={isGpuAvailable}
                 settings={settings}
                 updateSettings={updateSettings}
                 resetSettings={resetSettings}

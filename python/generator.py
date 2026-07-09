@@ -9,8 +9,10 @@ import json
 import base64
 import io
 import os
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from pathlib import Path
+
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 
 import torch
 from diffusers import (
@@ -36,6 +38,20 @@ LORAS_DIR = Path(os.environ.get("SD_LORAS_DIR", "./loras"))
 CONTROLNET_DIR = Path(os.environ.get("SD_CONTROLNET_DIR", "./controlnets"))
 
 DEFAULT_MODEL_ID = "stable-diffusion-v1-5/stable-diffusion-v1-5"
+
+
+class GPUNotAvailableError(RuntimeError):
+    """CUDA GPU も Apple Silicon MPS も利用できない環境で raise される。"""
+
+
+def _resolve_device() -> Tuple[str, torch.dtype]:
+    if torch.cuda.is_available():
+        return "cuda", torch.float16
+    if torch.backends.mps.is_available() and torch.backends.mps.is_built():
+        return "mps", torch.float32
+    raise GPUNotAvailableError(
+        "GPU が検出できませんでした。画像生成には CUDA GPU または Apple Silicon (MPS) が必要です。"
+    )
 
 DEFAULT_MODELS = [
     {"id": DEFAULT_MODEL_ID, "name": "Stable Diffusion v1.5", "path": DEFAULT_MODEL_ID},
@@ -106,15 +122,7 @@ class StableDiffusionGenerator:
         if self._pipe is not None and self._model_id == model_id:
             return True
 
-        if torch.cuda.is_available():
-            device = "cuda"
-            dtype = torch.float16
-        elif torch.backends.mps.is_available():
-            device = "mps"
-            dtype = torch.float32
-        else:
-            device = "cpu"
-            dtype = torch.float32
+        device, dtype = _resolve_device()
 
         self._pipe = StableDiffusionPipeline.from_pretrained(
             model_id,
@@ -262,7 +270,8 @@ class StableDiffusionGenerator:
 
         generator = None
         if seed is not None:
-            generator = torch.Generator(device=self._device).manual_seed(seed)
+            gen_device = "cpu" if self._device == "mps" else self._device
+            generator = torch.Generator(device=gen_device).manual_seed(seed)
 
         if controlnet and controlnet.get("enabled") and controlnet.get("modelName") and controlnet.get("controlImage"):
             self.load_controlnet(controlnet["modelName"])
@@ -341,7 +350,8 @@ class StableDiffusionGenerator:
 
         generator = None
         if seed is not None:
-            generator = torch.Generator(device=self._device).manual_seed(seed)
+            gen_device = "cpu" if self._device == "mps" else self._device
+            generator = torch.Generator(device=gen_device).manual_seed(seed)
 
         self._current_total_steps = steps
         result = self._img2img_pipe(

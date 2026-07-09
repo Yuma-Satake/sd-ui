@@ -40,6 +40,7 @@ type ParameterPanelProps = {
   onGenerate: (params: GenerateParams) => void
   isGenerating: boolean
   hasInputImage: boolean
+  isGpuAvailable: boolean
   settings: GenerationSettings
   updateSettings: (updates: Partial<GenerationSettings>) => void
   resetSettings: () => void
@@ -90,6 +91,7 @@ export const ParameterPanel = ({
   onGenerate,
   isGenerating,
   hasInputImage,
+  isGpuAvailable,
   settings,
   updateSettings,
   resetSettings,
@@ -456,7 +458,12 @@ export const ParameterPanel = ({
         type="submit"
         size="lg"
         className="w-full"
-        disabled={isGenerating || !settings.prompt.trim() || (mode === "img2img" && !hasInputImage)}
+        disabled={
+          isGenerating ||
+          !isGpuAvailable ||
+          !settings.prompt.trim() ||
+          (mode === "img2img" && !hasInputImage)
+        }
       >
         {isGenerating ? (
           <>
@@ -468,6 +475,9 @@ export const ParameterPanel = ({
         )}
       </Button>
 
+      {!isGpuAvailable && (
+        <p className="text-center text-sm text-destructive">GPU が検出できないため生成できません</p>
+      )}
       {mode === "img2img" && !hasInputImage && (
         <p className="text-center text-sm text-muted-foreground">Upload an input image to start</p>
       )}
