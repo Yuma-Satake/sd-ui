@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process"
 import path from "node:path"
 import { type NextRequest, NextResponse } from "next/server"
+import { saveGeneratedImages } from "@/lib/imageStorage"
 import { jobStore } from "@/lib/jobStore"
 
 const PYTHON_SCRIPT = path.join(process.cwd(), "python", "generator.py")
@@ -69,7 +70,7 @@ const runPythonInBackground = (jobId: string, command: string, input: Txt2ImgPar
     }
   })
 
-  proc.on("close", (code) => {
+  proc.on("close", async (code) => {
     if (code !== 0) {
       jobStore.setFailed(jobId, stderr || `Process exited with code ${code}`)
       return
@@ -78,11 +79,14 @@ const runPythonInBackground = (jobId: string, command: string, input: Txt2ImgPar
       const result = JSON.parse(stdout)
       if (result.error) {
         jobStore.setFailed(jobId, result.error)
-      } else {
-        jobStore.setCompleted(jobId, result)
+        return
       }
-    } catch {
-      jobStore.setFailed(jobId, `Failed to parse output: ${stdout}`)
+      const urls = await saveGeneratedImages(jobId, result.images)
+      const seeds: number[] = Array.isArray(result.seeds) ? result.seeds : []
+      jobStore.setCompleted(jobId, { images: urls, seeds })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : `Failed to parse output: ${stdout}`
+      jobStore.setFailed(jobId, message)
     }
   })
 

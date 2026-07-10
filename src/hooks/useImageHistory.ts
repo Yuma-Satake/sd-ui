@@ -12,6 +12,7 @@ export type HistoryImage = {
   prompt: string
   mode: string
   timestamp: string
+  seed: number
 }
 
 type UseImageHistoryReturn = {
@@ -26,7 +27,10 @@ type UseImageHistoryReturn = {
  * @returns 履歴の状態と操作関数
  */
 export const useImageHistory = (): UseImageHistoryReturn => {
-  const [history, setHistory] = useLocalStorage<HistoryImage[]>(STORAGE_KEY, [])
+  const [rawHistory, setHistory] = useLocalStorage<HistoryImage[]>(STORAGE_KEY, [])
+  const history = rawHistory.filter(
+    (item) => item.image.startsWith("/") && typeof item.seed === "number",
+  )
 
   const addImages = useCallback(
     (images: HistoryImage[]) => {

@@ -1,94 +1,83 @@
 "use client"
 
 import { useCallback } from "react"
-import type { ControlNetConfig, LoRAConfig, SamplerType } from "@/types/generation"
+import type { GenerationMode } from "@/types/generation"
 import { useLocalStorage } from "./useLocalStorage"
 
-const SETTINGS_KEY = "sd-ui-settings"
-const PRESETS_KEY = "sd-ui-custom-presets"
+const SETTINGS_KEY = "sd-ui-settings-v2"
 
-export type GenerationSettings = {
+export type QualityMode = "fast" | "standard" | "high"
+
+export type SimpleSettings = {
   prompt: string
-  negativePrompt: string
-  width: number
-  height: number
-  strength: number
+  qualityMode: QualityMode
+  mode: GenerationMode
+  seed: string
+}
+
+export type QualityPreset = {
+  label: string
+  description: string
   steps: number
   guidanceScale: number
-  seed: string
-  numImages: number
-  modelId: string
-  lora: LoRAConfig
-  controlnet: ControlNetConfig
-  sampler: SamplerType
+  width: number
+  height: number
 }
 
-export type CustomPreset = {
-  id: string
-  name: string
-  mode: "txt2img" | "img2img"
-  settings: Partial<GenerationSettings>
+export const QUALITY_PRESETS: Record<QualityMode, QualityPreset> = {
+  fast: {
+    label: "高速",
+    description: "短時間でざっくり",
+    steps: 20,
+    guidanceScale: 5,
+    width: 1024,
+    height: 1024,
+  },
+  standard: {
+    label: "標準",
+    description: "バランス重視",
+    steps: 30,
+    guidanceScale: 5,
+    width: 1024,
+    height: 1024,
+  },
+  high: {
+    label: "高品質",
+    description: "時間がかかるが綺麗",
+    steps: 40,
+    guidanceScale: 5,
+    width: 1024,
+    height: 1024,
+  },
 }
 
-const DEFAULT_LORA: LoRAConfig = {
-  enabled: false,
-  modelPath: "",
-  weight: 1.0,
-}
+export const HIDDEN_NEGATIVE_PROMPT =
+  "low quality, blurry, worst quality, bad anatomy, deformed, disfigured"
 
-const DEFAULT_CONTROLNET: ControlNetConfig = {
-  enabled: false,
-  modelName: "",
-  controlImage: null,
-  weight: 1.0,
-  guidanceStart: 0.0,
-  guidanceEnd: 1.0,
-}
+export const IMG2IMG_STRENGTH = 0.75
 
-const DEFAULT_SETTINGS: GenerationSettings = {
+export const DEFAULT_MODEL_ID = "RunDiffusion/Juggernaut-XL-v9"
+
+const DEFAULT_SETTINGS: SimpleSettings = {
   prompt: "",
-  negativePrompt: "",
-  width: 512,
-  height: 512,
-  strength: 0.75,
-  steps: 30,
-  guidanceScale: 7.5,
+  qualityMode: "standard",
+  mode: "img2img",
   seed: "",
-  numImages: 1,
-  modelId: "runwayml/stable-diffusion-v1-5",
-  lora: DEFAULT_LORA,
-  controlnet: DEFAULT_CONTROLNET,
-  sampler: "dpm++_2m",
 }
 
 type UseSettingsReturn = {
-  settings: GenerationSettings
-  updateSettings: (updates: Partial<GenerationSettings>) => void
+  settings: SimpleSettings
+  updateSettings: (updates: Partial<SimpleSettings>) => void
   resetSettings: () => void
-  customPresets: CustomPreset[]
-  savePreset: (
-    name: string,
-    mode: "txt2img" | "img2img",
-    settings: Partial<GenerationSettings>,
-  ) => void
-  deletePreset: (id: string) => void
-  applyPreset: (preset: CustomPreset) => void
 }
 
-/**
- * 設定の永続化を管理するカスタムフック
- * @returns 設定の状態と操作関数
- */
 export const useSettings = (): UseSettingsReturn => {
-  const [settings, setSettings] = useLocalStorage<GenerationSettings>(
-    SETTINGS_KEY,
-    DEFAULT_SETTINGS,
-  )
-  const [customPresets, setCustomPresets] = useLocalStorage<CustomPreset[]>(PRESETS_KEY, [])
+  const [rawSettings, setSettings] = useLocalStorage<SimpleSettings>(SETTINGS_KEY, DEFAULT_SETTINGS)
+  const settings: SimpleSettings = { ...DEFAULT_SETTINGS, ...rawSettings }
 
   const updateSettings = useCallback(
-    (updates: Partial<GenerationSettings>) => {
-      setSettings((prev) => ({ ...prev, ...updates }))
+    (updates: Partial<SimpleSettings>) => {
+      setSettings((prev) => ({ ...DEFAULT_SETTINGS, ...prev, ...updates }))
     },
     [setSettings],
   )
@@ -97,40 +86,9 @@ export const useSettings = (): UseSettingsReturn => {
     setSettings(DEFAULT_SETTINGS)
   }, [setSettings])
 
-  const savePreset = useCallback(
-    (name: string, mode: "txt2img" | "img2img", presetSettings: Partial<GenerationSettings>) => {
-      const newPreset: CustomPreset = {
-        id: `preset-${Date.now()}`,
-        name,
-        mode,
-        settings: presetSettings,
-      }
-      setCustomPresets((prev) => [...prev, newPreset])
-    },
-    [setCustomPresets],
-  )
-
-  const deletePreset = useCallback(
-    (id: string) => {
-      setCustomPresets((prev) => prev.filter((p) => p.id !== id))
-    },
-    [setCustomPresets],
-  )
-
-  const applyPreset = useCallback(
-    (preset: CustomPreset) => {
-      updateSettings(preset.settings)
-    },
-    [updateSettings],
-  )
-
   return {
     settings,
     updateSettings,
     resetSettings,
-    customPresets,
-    savePreset,
-    deletePreset,
-    applyPreset,
   }
 }

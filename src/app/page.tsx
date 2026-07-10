@@ -1,8 +1,7 @@
 "use client"
 
-import { AlertCircle, ChevronDown, ChevronUp, RefreshCw, Trash2 } from "lucide-react"
-import { useCallback, useEffect, useState } from "react"
-import { BatchInput } from "@/components/BatchInput"
+import { AlertCircle, ChevronDown, ChevronUp, Trash2 } from "lucide-react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { GeneratedImages } from "@/components/GeneratedImages"
 import { ImageUploader } from "@/components/ImageUploader"
 import { ParameterPanel } from "@/components/ParameterPanel"
@@ -10,123 +9,102 @@ import { QueuePanel } from "@/components/QueuePanel"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Toaster } from "@/components/ui/toaster"
 import { useErrorHandler } from "@/hooks/use-error-handler"
 import { useToast } from "@/hooks/use-toast"
-import { useBatchProcessing } from "@/hooks/useBatchProcessing"
 import { useGenerationQueue } from "@/hooks/useGenerationQueue"
 import { type HistoryImage, useImageHistory } from "@/hooks/useImageHistory"
-import { useSettings } from "@/hooks/useSettings"
-import type { AppError, ErrorType } from "@/types/error"
+import {
+  DEFAULT_MODEL_ID,
+  HIDDEN_NEGATIVE_PROMPT,
+  IMG2IMG_STRENGTH,
+  QUALITY_PRESETS,
+  type SimpleSettings,
+  useSettings,
+} from "@/hooks/useSettings"
+import type { ErrorType } from "@/types/error"
 import { createAppError } from "@/types/error"
-import type { ControlNetConfig, GeneratedImage, LoRAConfig } from "@/types/generation"
+import type { GeneratedImage, GenerateParams } from "@/types/generation"
 
-type GenerateParams = {
-  prompt: string
-  negative_prompt: string
-  width?: number
-  height?: number
-  strength?: number
-  steps: number
-  guidance_scale: number
-  seed: number | null
-  num_images: number
-  model_id?: string
-  lora?: LoRAConfig
-  controlnet?: ControlNetConfig
+const parseSeed = (raw: string): number | null => {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  const parsed = Number(trimmed)
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 0) return null
+  return parsed
 }
 
-/**
- * エラーメッセージからエラータイプを推定
- */
-const inferErrorType = (error: Error): ErrorType => {
-  const message = error.message.toLowerCase()
-  if (message.includes("network") || message.includes("failed to fetch")) return "network"
-  if (message.includes("timeout") || message.includes("timed out")) return "timeout"
-  if (message.includes("aborted")) return "timeout"
+const buildParams = (settings: SimpleSettings, mode: "txt2img" | "img2img"): GenerateParams => {
+  const preset = QUALITY_PRESETS[settings.qualityMode]
+  const params: GenerateParams = {
+    prompt: settings.prompt.trim(),
+    negative_prompt: HIDDEN_NEGATIVE_PROMPT,
+    steps: preset.steps,
+    guidance_scale: preset.guidanceScale,
+    seed: parseSeed(settings.seed),
+    num_images: 1,
+    model_id: DEFAULT_MODEL_ID,
+  }
+  if (mode === "txt2img") {
+    params.width = preset.width
+    params.height = preset.height
+  } else {
+    params.strength = IMG2IMG_STRENGTH
+  }
+  return params
+}
+
+const inferErrorType = (message: string): ErrorType => {
+  const lower = message.toLowerCase()
+  if (lower.includes("network") || lower.includes("failed to fetch")) return "network"
+  if (lower.includes("timeout") || lower.includes("timed out")) return "timeout"
+  if (lower.includes("aborted")) return "timeout"
   return "api"
 }
 
-/**
- * エラータイプに対応するタイトルを取得
- */
 const getErrorTitle = (type: ErrorType): string => {
   const titles: Record<ErrorType, string> = {
-    network: "Network Error",
-    api: "API Error",
-    timeout: "Timeout Error",
-    validation: "Validation Error",
-    unknown: "Error",
+    network: "ネットワークエラー",
+    api: "APIエラー",
+    timeout: "タイムアウト",
+    validation: "入力エラー",
+    unknown: "エラー",
   }
   return titles[type]
 }
 
-/**
- * タイムスタンプをフォーマット
- */
 const formatTimestamp = (date: Date): string =>
   new Date(date).toLocaleTimeString("ja-JP", {
     hour: "2-digit",
     minute: "2-digit",
   })
 
-/**
- * メインページコンポーネント
- */
 export default function Home(): React.ReactNode {
-  const [mode, setMode] = useState<"txt2img" | "img2img">("img2img")
   const [inputImage, setInputImage] = useState<string | null>(null)
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [progress, setProgress] = useState(0)
   const [showErrorLog, setShowErrorLog] = useState(false)
-  const [lastParams, setLastParams] = useState<GenerateParams | null>(null)
-  const [sidebarTab, setSidebarTab] = useState<"generate" | "batch">("generate")
   const [generationStartTime, setGenerationStartTime] = useState<number | null>(null)
 
   const { history, addImages, clearHistory, removeImage } = useImageHistory()
-  const {
-    settings,
-    updateSettings,
-    resetSettings,
-    customPresets,
-    savePreset,
-    deletePreset,
-    applyPreset,
-  } = useSettings()
+  const { settings, updateSettings } = useSettings()
+  const mode = settings.mode
+  const setMode = useCallback(
+    (next: "txt2img" | "img2img") => updateSettings({ mode: next }),
+    [updateSettings],
+  )
 
-  const {
-    queueItems,
-    isAutoRunning,
-    isProcessing,
-    addToQueue,
-    removeFromQueue,
-    moveInQueue,
-    clearCompleted,
-    toggleAutoRun,
-    processQueue,
-  } = useGenerationQueue()
-
-  const {
-    batchItems,
-    currentIndex,
-    isRunning: isBatchRunning,
-    isPaused: isBatchPaused,
-    startBatch,
-    stopBatch,
-    pauseBatch,
-    resumeBatch,
-  } = useBatchProcessing()
+  const { queueItems, isProcessing, addToQueue, removeFromQueue, moveInQueue, processQueue } =
+    useGenerationQueue()
 
   const { toasts, toast, dismiss } = useToast()
-  const {
-    errorLog,
-    currentError,
-    handleError,
-    clearCurrentError,
-    clearErrorLog,
-    markErrorAsResolved,
-  } = useErrorHandler()
+  const { errorLog, handleError, clearErrorLog, markErrorAsResolved } = useErrorHandler()
+
+  const processingItem = useMemo(
+    () => queueItems.find((item) => item.status === "processing"),
+    [queueItems],
+  )
+  const isGenerating = isProcessing
+  const progress = processingItem?.progress ?? null
 
   const handleImageGenerated = useCallback(
     (image: GeneratedImage) => {
@@ -136,35 +114,47 @@ export default function Home(): React.ReactNode {
         prompt: image.prompt,
         mode: image.mode,
         timestamp: image.timestamp,
+        seed: image.seed,
       }
       addImages([historyImage])
     },
     [addImages],
   )
 
-  useEffect(() => {
-    if (isAutoRunning && !isProcessing) {
-      const hasPending = queueItems.some((item) => item.status === "pending")
-      if (hasPending) {
-        processQueue(handleImageGenerated)
-      }
-    }
-  }, [isAutoRunning, isProcessing, queueItems, processQueue, handleImageGenerated])
-
   const showErrorToast = useCallback(
-    (appError: AppError): void => {
+    (message: string): void => {
+      const type = inferErrorType(message)
+      const appError = createAppError(new Error(message), { type })
+      handleError(appError)
       toast({
-        title: getErrorTitle(appError.type),
-        description: appError.message,
+        title: getErrorTitle(type),
+        description: message,
         variant: "destructive",
         duration: 8000,
       })
     },
-    [toast],
+    [handleError, toast],
   )
 
+  useEffect(() => {
+    if (processingItem && generationStartTime === null) {
+      setGenerationStartTime(Date.now())
+    } else if (!processingItem && generationStartTime !== null) {
+      setGenerationStartTime(null)
+    }
+  }, [processingItem, generationStartTime])
+
+  useEffect(() => {
+    if (!isProcessing) {
+      const hasPending = queueItems.some((item) => item.status === "pending")
+      if (hasPending) {
+        processQueue(handleImageGenerated, showErrorToast)
+      }
+    }
+  }, [isProcessing, queueItems, processQueue, handleImageGenerated, showErrorToast])
+
   const getEstimatedTimeRemaining = useCallback((): string => {
-    if (!generationStartTime || progress <= 0) return ""
+    if (!generationStartTime || progress === null || progress <= 0) return ""
     const elapsed = Date.now() - generationStartTime
     const estimatedTotal = elapsed / (progress / 100)
     const remaining = Math.max(0, estimatedTotal - elapsed)
@@ -175,154 +165,65 @@ export default function Home(): React.ReactNode {
     return `残り約${minutes}分${secs}秒`
   }, [generationStartTime, progress])
 
-  const handleGenerate = useCallback(
-    async (params: GenerateParams): Promise<void> => {
-      setIsGenerating(true)
-      setGenerationStartTime(Date.now())
-      setProgress(0)
-      clearCurrentError()
-      setLastParams(params)
+  const handleGenerate = useCallback((): void => {
+    if (!settings.prompt.trim()) return
+    if (mode === "img2img" && !inputImage) return
+    const params = buildParams(settings, mode)
+    addToQueue(params, mode, inputImage || undefined)
+    toast({
+      title: "生成待ちに追加しました",
+      description: "順番に処理されます",
+      variant: "success",
+      duration: 2000,
+    })
+  }, [settings, mode, inputImage, addToQueue, toast])
 
+  const handleUseAsInput = useCallback(
+    async (imageUrl: string): Promise<void> => {
       try {
-        const endpoint = mode === "img2img" ? "/api/generate/img2img" : "/api/generate/txt2img"
-        const requestBody = mode === "img2img" ? { ...params, init_image: inputImage } : params
-
-        const response = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(requestBody),
+        const response = await fetch(imageUrl)
+        const blob = await response.blob()
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onloadend = () => {
+            const result = reader.result as string
+            resolve(result.split(",")[1] ?? "")
+          }
+          reader.onerror = () => reject(reader.error)
+          reader.readAsDataURL(blob)
         })
-
-        const data = await response.json()
-
-        if (!response.ok) {
-          throw new Error(data.error || "Failed to start generation")
-        }
-
-        const { jobId } = data
-
-        const pollInterval = 3000
-        const maxPolls = 600
-
-        for (let i = 0; i < maxPolls; i++) {
-          await new Promise((resolve) => setTimeout(resolve, pollInterval))
-
-          const statusResponse = await fetch(`/api/job/${jobId}`)
-          const statusData = await statusResponse.json()
-
-          if (statusData.status === "completed") {
-            setProgress(100)
-
-            const newImages: HistoryImage[] = statusData.result.images.map(
-              (img: string, idx: number) => ({
-                id: `${Date.now()}-${idx}`,
-                image: img,
-                prompt: params.prompt,
-                mode,
-                timestamp: new Date().toISOString(),
-              }),
-            )
-
-            addImages(newImages)
-
-            toast({
-              title: "Generation Complete",
-              description: `${statusData.result.images.length} image(s) generated successfully`,
-              variant: "success",
-              duration: 3000,
-            })
-            return
-          }
-
-          if (statusData.status === "failed") {
-            throw new Error(statusData.error || "Generation failed")
-          }
-
-          if (statusData.progress !== undefined && statusData.progress > 0) {
-            setProgress(statusData.progress)
-          } else {
-            const progressValue = Math.min((i / maxPolls) * 95, 95)
-            setProgress(progressValue)
-          }
-        }
-
-        throw new Error("Generation timed out")
+        setInputImage(base64)
+        setMode("img2img")
+        toast({
+          title: "入力画像に設定しました",
+          description: "「画像から作る」モードに切り替えました",
+          variant: "success",
+          duration: 2000,
+        })
       } catch (err) {
-        const error = err instanceof Error ? err : new Error("An unknown error occurred")
-        const errorType = inferErrorType(error)
-        const appError = createAppError(error, { type: errorType })
-        handleError(appError)
-        showErrorToast(appError)
-      } finally {
-        setIsGenerating(false)
-        setGenerationStartTime(null)
+        const message = err instanceof Error ? err.message : "画像の読み込みに失敗しました"
+        toast({
+          title: "入力画像の設定に失敗しました",
+          description: message,
+          variant: "destructive",
+          duration: 4000,
+        })
       }
     },
-    [mode, inputImage, addImages, clearCurrentError, handleError, showErrorToast, toast],
+    [setMode, toast],
   )
 
-  const handleRetry = useCallback((): void => {
-    if (lastParams) {
-      if (currentError) {
-        markErrorAsResolved(currentError.id)
-      }
-      handleGenerate(lastParams)
-    }
-  }, [lastParams, currentError, markErrorAsResolved, handleGenerate])
-
-  const handleUseAsInput = useCallback((imageBase64: string): void => {
-    setInputImage(imageBase64)
-    setMode("img2img")
-  }, [])
-
-  const handleAddToQueue = useCallback((): void => {
-    if (!settings.prompt.trim()) return
-
-    const params: GenerateParams = {
-      prompt: settings.prompt.trim(),
-      negative_prompt: settings.negativePrompt.trim(),
-      steps: settings.steps,
-      guidance_scale: settings.guidanceScale,
-      seed: settings.seed ? Number.parseInt(settings.seed, 10) : null,
-      num_images: settings.numImages,
-      model_id: settings.modelId,
-    }
-
-    if (settings.lora.enabled && settings.lora.modelPath) {
-      params.lora = settings.lora
-    }
-
-    if (settings.controlnet.enabled && settings.controlnet.modelName) {
-      params.controlnet = settings.controlnet
-    }
-
-    if (mode === "txt2img") {
-      params.width = settings.width
-      params.height = settings.height
-    } else {
-      params.strength = settings.strength
-    }
-
-    addToQueue(params, mode, inputImage || undefined)
-  }, [settings, mode, inputImage, addToQueue])
-
-  const handleStartBatch = useCallback(
-    (prompts: string[]): void => {
-      const baseParams = {
-        negative_prompt: settings.negativePrompt.trim(),
-        steps: settings.steps,
-        guidance_scale: settings.guidanceScale,
-        seed: null,
-        num_images: settings.numImages,
-        model_id: settings.modelId,
-        width: settings.width,
-        height: settings.height,
-        strength: settings.strength,
-      }
-
-      startBatch(prompts, baseParams, mode, inputImage || undefined, handleImageGenerated)
+  const handleReuseSeed = useCallback(
+    (seed: number): void => {
+      updateSettings({ seed: String(seed) })
+      toast({
+        title: "seedを設定しました",
+        description: `seed=${seed} を次回の生成で使用します`,
+        variant: "success",
+        duration: 2000,
+      })
     },
-    [settings, mode, inputImage, startBatch, handleImageGenerated],
+    [updateSettings, toast],
   )
 
   const unresolvedErrors = errorLog.filter((e) => !e.resolved)
@@ -330,12 +231,12 @@ export default function Home(): React.ReactNode {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="flex items-center justify-between border-b bg-card px-6 py-4">
-        <h1 className="text-xl font-semibold">Stable Diffusion WebUI</h1>
+        <h1 className="text-xl font-semibold">お手軽 画像生成</h1>
         <div className="flex items-center gap-4">
           <Tabs value={mode} onValueChange={(v) => setMode(v as typeof mode)}>
             <TabsList>
-              <TabsTrigger value="img2img">img2img</TabsTrigger>
-              <TabsTrigger value="txt2img">txt2img</TabsTrigger>
+              <TabsTrigger value="img2img">画像から作る</TabsTrigger>
+              <TabsTrigger value="txt2img">文章から作る</TabsTrigger>
             </TabsList>
           </Tabs>
           <ThemeToggle />
@@ -344,103 +245,42 @@ export default function Home(): React.ReactNode {
 
       {isGenerating && (
         <div className="sticky top-0 z-50 border-b bg-card px-6 py-3 shadow-md">
-          <div className="mb-2 flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">生成中... {getEstimatedTimeRemaining()}</span>
-            <span className="font-medium">{Math.round(progress)}%</span>
-          </div>
-          <Progress value={progress} className="h-2" />
+          {progress === null ? (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">
+                生成中... モデル準備中のため進捗を測定できません
+              </span>
+            </div>
+          ) : (
+            <>
+              <div className="mb-2 flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">
+                  生成中... {getEstimatedTimeRemaining()}
+                </span>
+                <span className="font-medium">{Math.round(progress)}%</span>
+              </div>
+              <Progress value={progress} className="h-2" />
+            </>
+          )}
         </div>
       )}
 
       <main className="flex flex-1">
-        <aside className="flex w-[420px] flex-col gap-5 overflow-y-auto border-r bg-card p-5">
+        <aside className="flex w-[380px] flex-col gap-5 overflow-y-auto border-r bg-card p-5">
           {mode === "img2img" && (
             <ImageUploader currentImage={inputImage} onImageSelect={setInputImage} />
           )}
 
-          <Tabs value={sidebarTab} onValueChange={(v) => setSidebarTab(v as typeof sidebarTab)}>
-            <TabsList className="w-full">
-              <TabsTrigger value="generate" className="flex-1">
-                Generate
-              </TabsTrigger>
-              <TabsTrigger value="batch" className="flex-1">
-                Batch
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="generate" className="mt-4 space-y-4">
-              <ParameterPanel
-                mode={mode}
-                onGenerate={handleGenerate}
-                isGenerating={isGenerating || isProcessing}
-                hasInputImage={!!inputImage}
-                settings={settings}
-                updateSettings={updateSettings}
-                resetSettings={resetSettings}
-                customPresets={customPresets}
-                savePreset={savePreset}
-                deletePreset={deletePreset}
-                applyPreset={applyPreset}
-              />
-            </TabsContent>
-
-            <TabsContent value="batch" className="mt-4 space-y-4">
-              <BatchInput
-                onStartBatch={handleStartBatch}
-                onStopBatch={stopBatch}
-                onPauseBatch={pauseBatch}
-                onResumeBatch={resumeBatch}
-                isRunning={isBatchRunning}
-                isPaused={isBatchPaused}
-                batchItems={batchItems}
-                currentIndex={currentIndex}
-              />
-            </TabsContent>
-          </Tabs>
-
-          <QueuePanel
-            items={queueItems}
-            isAutoRunning={isAutoRunning}
-            onToggleAutoRun={toggleAutoRun}
-            onRemoveItem={removeFromQueue}
-            onMoveItem={moveInQueue}
-            onClearCompleted={clearCompleted}
-            onAddCurrentToQueue={handleAddToQueue}
+          <ParameterPanel
+            mode={mode}
+            onGenerate={handleGenerate}
+            isGenerating={false}
+            hasInputImage={!!inputImage}
+            settings={settings}
+            updateSettings={updateSettings}
           />
 
-          {currentError && (
-            <div className="rounded-lg border border-destructive bg-destructive/10 p-4">
-              <div className="mb-2 flex items-start gap-2">
-                <AlertCircle className="mt-0.5 h-5 w-5 text-destructive" />
-                <div className="flex-1">
-                  <p className="font-medium text-destructive">{getErrorTitle(currentError.type)}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">{currentError.message}</p>
-                  {currentError.details && currentError.details !== currentError.message && (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Details: {currentError.details}
-                    </p>
-                  )}
-                </div>
-              </div>
-              <div className="mt-3 flex gap-2">
-                {currentError.retryable && lastParams && (
-                  <Button variant="outline" size="sm" onClick={handleRetry} disabled={isGenerating}>
-                    <RefreshCw className="mr-1 h-4 w-4" />
-                    Retry
-                  </Button>
-                )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    markErrorAsResolved(currentError.id)
-                  }}
-                >
-                  Dismiss
-                </Button>
-              </div>
-            </div>
-          )}
+          <QueuePanel items={queueItems} onRemoveItem={removeFromQueue} onMoveItem={moveInQueue} />
 
           {unresolvedErrors.length > 0 && (
             <div className="rounded-lg border bg-card p-3">
@@ -449,7 +289,10 @@ export default function Home(): React.ReactNode {
                 className="flex w-full items-center justify-between text-sm"
                 onClick={() => setShowErrorLog(!showErrorLog)}
               >
-                <span className="font-medium">Error Log ({unresolvedErrors.length})</span>
+                <span className="flex items-center gap-2 font-medium">
+                  <AlertCircle className="h-4 w-4 text-destructive" />
+                  エラーログ ({unresolvedErrors.length})
+                </span>
                 {showErrorLog ? (
                   <ChevronUp className="h-4 w-4" />
                 ) : (
@@ -464,21 +307,30 @@ export default function Home(): React.ReactNode {
                         <span className="font-medium text-destructive">
                           {getErrorTitle(entry.type)}
                         </span>
-                        <span className="text-muted-foreground">
-                          {formatTimestamp(entry.timestamp)}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-muted-foreground">
+                            {formatTimestamp(entry.timestamp)}
+                          </span>
+                          <button
+                            type="button"
+                            className="text-muted-foreground hover:text-foreground"
+                            onClick={() => markErrorAsResolved(entry.id)}
+                          >
+                            ×
+                          </button>
+                        </div>
                       </div>
                       <p className="mt-1 text-muted-foreground">{entry.message}</p>
                     </div>
                   ))}
                   {unresolvedErrors.length > 5 && (
                     <p className="text-center text-xs text-muted-foreground">
-                      +{unresolvedErrors.length - 5} more errors
+                      他 {unresolvedErrors.length - 5} 件
                     </p>
                   )}
                   <Button variant="ghost" size="sm" className="w-full" onClick={clearErrorLog}>
                     <Trash2 className="mr-1 h-4 w-4" />
-                    Clear Log
+                    ログを消去
                   </Button>
                 </div>
               )}
@@ -492,6 +344,7 @@ export default function Home(): React.ReactNode {
             onUseAsInput={handleUseAsInput}
             onClearHistory={clearHistory}
             onRemoveImage={removeImage}
+            onReuseSeed={handleReuseSeed}
           />
         </section>
       </main>

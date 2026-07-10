@@ -1,6 +1,6 @@
 export type GenerationMode = "txt2img" | "img2img"
 
-export type QueueItemStatus = "pending" | "processing" | "completed" | "error"
+export type QueueItemStatus = "pending" | "processing" | "error"
 
 export type SamplerType =
   | "dpm++_2m"
@@ -84,4 +84,5 @@ export type GeneratedImage = {
   prompt: string
   mode: string
   timestamp: string
+  seed: number
 }

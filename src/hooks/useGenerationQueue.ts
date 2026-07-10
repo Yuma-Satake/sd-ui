@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useCallback, useRef, useState } from "react"
 import type {
   GeneratedImage,
   GenerateParams,
@@ -11,22 +11,28 @@ import type {
 
 type UseGenerationQueueReturn = {
   queueItems: QueueItem[]
-  isAutoRunning: boolean
   isProcessing: boolean
   addToQueue: (params: GenerateParams, mode: GenerationMode, inputImage?: string) => void
   removeFromQueue: (id: string) => void
   moveInQueue: (id: string, direction: "up" | "down") => void
-  clearCompleted: () => void
-  toggleAutoRun: () => void
-  processQueue: (onImageGenerated: (image: GeneratedImage) => void) => Promise<void>
+  processQueue: (
+    onImageGenerated: (image: GeneratedImage) => void,
+    onError: (message: string) => void,
+  ) => Promise<void>
 }
 
 const generateId = (): string => `queue-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 
+const POLL_INTERVAL_MS = 1000
+const MAX_POLLS = 1800
+
 export const useGenerationQueue = (): UseGenerationQueueReturn => {
   const [queueItems, setQueueItems] = useState<QueueItem[]>([])
-  const [isAutoRunning, setIsAutoRunning] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
+  const processingRef = useRef(false)
+  const queueRef = useRef<QueueItem[]>([])
+
+  queueRef.current = queueItems
 
   const addToQueue = useCallback(
     (params: GenerateParams, mode: GenerationMode, inputImage?: string): void => {
@@ -38,7 +44,6 @@ export const useGenerationQueue = (): UseGenerationQueueReturn => {
         status: "pending",
         createdAt: new Date().toISOString(),
       }
-
       setQueueItems((prev) => [...prev, newItem])
     },
     [],
@@ -65,15 +70,17 @@ export const useGenerationQueue = (): UseGenerationQueueReturn => {
     })
   }, [])
 
-  const clearCompleted = useCallback((): void => {
-    setQueueItems((prev) => prev.filter((item) => item.status !== "completed"))
+  const bumpProgress = useCallback((id: string, next: number): void => {
+    setQueueItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item
+        const current = item.progress ?? 0
+        return current < next ? { ...item, progress: next } : item
+      }),
+    )
   }, [])
 
-  const toggleAutoRun = useCallback((): void => {
-    setIsAutoRunning((prev) => !prev)
-  }, [])
-
-  const updateItemStatus = useCallback(
+  const setItemStatus = useCallback(
     (id: string, status: QueueItemStatus, updates?: Partial<QueueItem>): void => {
       setQueueItems((prev) =>
         prev.map((item) => (item.id === id ? { ...item, status, ...updates } : item)),
@@ -82,73 +89,107 @@ export const useGenerationQueue = (): UseGenerationQueueReturn => {
     [],
   )
 
-  const processQueue = useCallback(
-    async (onImageGenerated: (image: GeneratedImage) => void): Promise<void> => {
-      if (isProcessing) return
+  const processItem = useCallback(
+    async (item: QueueItem, onImageGenerated: (image: GeneratedImage) => void): Promise<void> => {
+      setItemStatus(item.id, "processing", { progress: undefined, error: undefined })
 
+      const endpoint = item.mode === "img2img" ? "/api/generate/img2img" : "/api/generate/txt2img"
+      const requestBody =
+        item.mode === "img2img" ? { ...item.params, init_image: item.inputImage } : item.params
+
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.error || "生成の開始に失敗しました")
+      }
+      const { jobId } = data
+
+      let notFoundStreak = 0
+      for (let i = 0; i < MAX_POLLS; i++) {
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+        const statusResponse = await fetch(`/api/job/${jobId}`)
+        const statusData = await statusResponse.json()
+
+        if (statusData.status === "completed") {
+          const images: string[] = statusData.result?.images ?? []
+          const seeds: number[] = statusData.result?.seeds ?? []
+          for (const [idx, img] of images.entries()) {
+            onImageGenerated({
+              id: `${item.id}-${idx}`,
+              image: img,
+              prompt: item.params.prompt,
+              mode: item.mode,
+              timestamp: new Date().toISOString(),
+              seed: seeds[idx] ?? 0,
+            })
+          }
+          setQueueItems((prev) => prev.filter((q) => q.id !== item.id))
+          return
+        }
+
+        if (statusData.status === "failed") {
+          throw new Error(statusData.error || "生成に失敗しました")
+        }
+
+        if (statusData.status === "not_found") {
+          notFoundStreak += 1
+          if (notFoundStreak >= 5) {
+            throw new Error("ジョブが失われました。サーバーを再起動してもう一度お試しください")
+          }
+          continue
+        }
+        notFoundStreak = 0
+
+        if (statusData.progress !== undefined && statusData.progress > 0) {
+          bumpProgress(item.id, statusData.progress)
+        }
+      }
+
+      throw new Error("生成がタイムアウトしました")
+    },
+    [setItemStatus, bumpProgress],
+  )
+
+  const processQueue = useCallback(
+    async (
+      onImageGenerated: (image: GeneratedImage) => void,
+      onError: (message: string) => void,
+    ): Promise<void> => {
+      if (processingRef.current) return
+      processingRef.current = true
       setIsProcessing(true)
 
       try {
-        const pendingItems = queueItems.filter((item) => item.status === "pending")
-
-        for (const item of pendingItems) {
-          if (!isAutoRunning) break
-
-          updateItemStatus(item.id, "processing")
+        while (true) {
+          const next = queueRef.current.find((item) => item.status === "pending")
+          if (!next) break
 
           try {
-            const endpoint =
-              item.mode === "img2img" ? "/api/generate/img2img" : "/api/generate/txt2img"
-
-            const requestBody =
-              item.mode === "img2img"
-                ? { ...item.params, init_image: item.inputImage }
-                : item.params
-
-            const response = await fetch(endpoint, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(requestBody),
-            })
-
-            const data = await response.json()
-
-            if (!response.ok) {
-              throw new Error(data.error || "Generation failed")
-            }
-
-            updateItemStatus(item.id, "completed", { result: data.images })
-
-            for (const [idx, img] of data.images.entries()) {
-              onImageGenerated({
-                id: `${item.id}-${idx}`,
-                image: img,
-                prompt: item.params.prompt,
-                mode: item.mode,
-                timestamp: new Date().toISOString(),
-              })
-            }
-          } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : "Unknown error"
-            updateItemStatus(item.id, "error", { error: errorMessage })
+            await processItem(next, onImageGenerated)
+          } catch (err) {
+            const message = err instanceof Error ? err.message : "不明なエラーが発生しました"
+            setItemStatus(next.id, "error", { error: message })
+            onError(message)
           }
         }
       } finally {
+        processingRef.current = false
         setIsProcessing(false)
       }
     },
-    [queueItems, isAutoRunning, isProcessing, updateItemStatus],
+    [processItem, setItemStatus],
   )
 
   return {
     queueItems,
-    isAutoRunning,
     isProcessing,
     addToQueue,
     removeFromQueue,
     moveInQueue,
-    clearCompleted,
-    toggleAutoRun,
     processQueue,
   }
 }

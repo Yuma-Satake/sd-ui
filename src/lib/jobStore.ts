@@ -1,15 +1,19 @@
 type JobStatus = "pending" | "processing" | "completed" | "failed"
 
+type JobResult = { images: string[]; seeds: number[] }
+
 type Job = {
   id: string
   status: JobStatus
   progress?: number
-  result?: { images: string[] }
+  result?: JobResult
   error?: string
   createdAt: number
 }
 
-const jobs = new Map<string, Job>()
+const globalForJobs = globalThis as unknown as { __sdJobs?: Map<string, Job> }
+const jobs: Map<string, Job> = globalForJobs.__sdJobs ?? new Map<string, Job>()
+globalForJobs.__sdJobs = jobs
 
 export const jobStore = {
   create(id: string): Job {
@@ -40,7 +44,7 @@ export const jobStore = {
     }
   },
 
-  setCompleted(id: string, result: { images: string[] }): void {
+  setCompleted(id: string, result: JobResult): void {
     const job = jobs.get(id)
     if (job) {
       job.status = "completed"
