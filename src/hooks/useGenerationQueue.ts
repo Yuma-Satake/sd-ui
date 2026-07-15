@@ -12,7 +12,12 @@ import type {
 type UseGenerationQueueReturn = {
   queueItems: QueueItem[]
   isProcessing: boolean
-  addToQueue: (params: GenerateParams, mode: GenerationMode, inputImage?: string) => void
+  addToQueue: (
+    params: GenerateParams,
+    mode: GenerationMode,
+    inputImage?: string,
+    tag?: string,
+  ) => string
   removeFromQueue: (id: string) => void
   moveInQueue: (id: string, direction: "up" | "down") => void
   processQueue: (
@@ -35,16 +40,19 @@ export const useGenerationQueue = (): UseGenerationQueueReturn => {
   queueRef.current = queueItems
 
   const addToQueue = useCallback(
-    (params: GenerateParams, mode: GenerationMode, inputImage?: string): void => {
+    (params: GenerateParams, mode: GenerationMode, inputImage?: string, tag?: string): string => {
+      const id = generateId()
       const newItem: QueueItem = {
-        id: generateId(),
+        id,
         params,
         mode,
         inputImage,
         status: "pending",
         createdAt: new Date().toISOString(),
+        tag,
       }
       setQueueItems((prev) => [...prev, newItem])
+      return id
     },
     [],
   )
@@ -125,6 +133,7 @@ export const useGenerationQueue = (): UseGenerationQueueReturn => {
               mode: item.mode,
               timestamp: new Date().toISOString(),
               seed: seeds[idx] ?? 0,
+              tag: item.tag,
             })
           }
           setQueueItems((prev) => prev.filter((q) => q.id !== item.id))

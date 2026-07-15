@@ -1,5 +1,7 @@
 export type GenerationMode = "txt2img" | "img2img"
 
+export type AppMode = GenerationMode | "prompt-refine"
+
 export type QueueItemStatus = "pending" | "processing" | "error"
 
 export type SamplerType =
@@ -76,6 +78,7 @@ export type QueueItem = {
   result?: string[]
   error?: string
   createdAt: string
+  tag?: string
 }
 
 export type GeneratedImage = {
@@ -85,4 +88,13 @@ export type GeneratedImage = {
   mode: string
   timestamp: string
   seed: number
+  tag?: string
+}
+
+export type PromptRefineCandidate = {
+  tag: string
+  prompt: string
+  status: "pending" | "completed" | "error"
+  image?: string
+  error?: string
 }
