@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { GeneratedImages } from "@/components/GeneratedImages"
 import { ImageUploader } from "@/components/ImageUploader"
 import { ParameterPanel } from "@/components/ParameterPanel"
+import { PromptRefineComparison } from "@/components/PromptRefineComparison"
+import { PromptRefinePanel } from "@/components/PromptRefinePanel"
 import { QueuePanel } from "@/components/QueuePanel"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { Button } from "@/components/ui/button"
@@ -15,6 +17,7 @@ import { useErrorHandler } from "@/hooks/use-error-handler"
 import { useToast } from "@/hooks/use-toast"
 import { useGenerationQueue } from "@/hooks/useGenerationQueue"
 import { type HistoryImage, useImageHistory } from "@/hooks/useImageHistory"
+import { usePromptRefineLoop } from "@/hooks/usePromptRefineLoop"
 import {
   DEFAULT_MODEL_ID,
   HIDDEN_NEGATIVE_PROMPT,
@@ -25,7 +28,7 @@ import {
 } from "@/hooks/useSettings"
 import type { ErrorType } from "@/types/error"
 import { createAppError } from "@/types/error"
-import type { GeneratedImage, GenerateParams } from "@/types/generation"
+import type { AppMode, GeneratedImage, GenerateParams } from "@/types/generation"
 
 const parseSeed = (raw: string): number | null => {
   const trimmed = raw.trim()
@@ -88,10 +91,7 @@ export default function Home(): React.ReactNode {
   const { history, addImages, clearHistory, removeImage } = useImageHistory()
   const { settings, updateSettings } = useSettings()
   const mode = settings.mode
-  const setMode = useCallback(
-    (next: "txt2img" | "img2img") => updateSettings({ mode: next }),
-    [updateSettings],
-  )
+  const setMode = useCallback((next: AppMode) => updateSettings({ mode: next }), [updateSettings])
 
   const { queueItems, isProcessing, addToQueue, removeFromQueue, moveInQueue, processQueue } =
     useGenerationQueue()
@@ -106,21 +106,6 @@ export default function Home(): React.ReactNode {
   const isGenerating = isProcessing
   const progress = processingItem?.progress ?? null
 
-  const handleImageGenerated = useCallback(
-    (image: GeneratedImage) => {
-      const historyImage: HistoryImage = {
-        id: image.id,
-        image: image.image,
-        prompt: image.prompt,
-        mode: image.mode,
-        timestamp: image.timestamp,
-        seed: image.seed,
-      }
-      addImages([historyImage])
-    },
-    [addImages],
-  )
-
   const showErrorToast = useCallback(
     (message: string): void => {
       const type = inferErrorType(message)
@@ -134,6 +119,37 @@ export default function Home(): React.ReactNode {
       })
     },
     [handleError, toast],
+  )
+
+  const buildRefineParams = useCallback(
+    (prompt: string): GenerateParams => ({
+      ...buildParams(settings, "txt2img"),
+      prompt,
+    }),
+    [settings],
+  )
+
+  const refineLoop = usePromptRefineLoop({
+    addToQueue,
+    buildParams: buildRefineParams,
+    queueItems,
+    onError: showErrorToast,
+  })
+
+  const handleImageGenerated = useCallback(
+    (image: GeneratedImage) => {
+      refineLoop.handleGeneratedImage(image)
+      const historyImage: HistoryImage = {
+        id: image.id,
+        image: image.image,
+        prompt: image.prompt,
+        mode: image.mode,
+        timestamp: image.timestamp,
+        seed: image.seed,
+      }
+      addImages([historyImage])
+    },
+    [addImages, refineLoop.handleGeneratedImage],
   )
 
   useEffect(() => {
@@ -166,6 +182,7 @@ export default function Home(): React.ReactNode {
   }, [generationStartTime, progress])
 
   const handleGenerate = useCallback((): void => {
+    if (mode === "prompt-refine") return
     if (!settings.prompt.trim()) return
     if (mode === "img2img" && !inputImage) return
     const params = buildParams(settings, mode)
@@ -226,6 +243,18 @@ export default function Home(): React.ReactNode {
     [updateSettings, toast],
   )
 
+  const handleConfirmRefine = useCallback((): void => {
+    const prompt = refineLoop.confirm()
+    if (prompt === null) return
+    updateSettings({ prompt, mode: "txt2img" })
+    toast({
+      title: "プロンプトを反映しました",
+      description: "「文章から作る」モードに切り替えました",
+      variant: "success",
+      duration: 2000,
+    })
+  }, [refineLoop.confirm, updateSettings, toast])
+
   const unresolvedErrors = errorLog.filter((e) => !e.resolved)
 
   return (
@@ -233,10 +262,11 @@ export default function Home(): React.ReactNode {
       <header className="flex items-center justify-between border-b bg-card px-6 py-4">
         <h1 className="text-xl font-semibold">お手軽 画像生成</h1>
         <div className="flex items-center gap-4">
-          <Tabs value={mode} onValueChange={(v) => setMode(v as typeof mode)}>
+          <Tabs value={mode} onValueChange={(v) => setMode(v as AppMode)}>
             <TabsList>
               <TabsTrigger value="img2img">画像から作る</TabsTrigger>
               <TabsTrigger value="txt2img">文章から作る</TabsTrigger>
+              <TabsTrigger value="prompt-refine">プロンプトを改善する</TabsTrigger>
             </TabsList>
           </Tabs>
           <ThemeToggle />
@@ -244,7 +274,7 @@ export default function Home(): React.ReactNode {
       </header>
 
       {isGenerating && (
-        <div className="sticky top-0 z-50 border-b bg-card px-6 py-3 shadow-md">
+        <div className="fixed bottom-0 left-0 right-0 z-50 border-t bg-card px-6 py-3 shadow-md">
           {progress === null ? (
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">
@@ -271,14 +301,26 @@ export default function Home(): React.ReactNode {
             <ImageUploader currentImage={inputImage} onImageSelect={setInputImage} />
           )}
 
-          <ParameterPanel
-            mode={mode}
-            onGenerate={handleGenerate}
-            isGenerating={false}
-            hasInputImage={!!inputImage}
-            settings={settings}
-            updateSettings={updateSettings}
-          />
+          {mode === "prompt-refine" ? (
+            <PromptRefinePanel
+              settings={settings}
+              updateSettings={updateSettings}
+              loop={refineLoop.loop}
+              isFetchingCandidates={refineLoop.isFetchingCandidates}
+              onStart={refineLoop.start}
+              onConfirm={handleConfirmRefine}
+              onCancel={refineLoop.cancel}
+            />
+          ) : (
+            <ParameterPanel
+              mode={mode}
+              onGenerate={handleGenerate}
+              isGenerating={false}
+              hasInputImage={!!inputImage}
+              settings={settings}
+              updateSettings={updateSettings}
+            />
+          )}
 
           <QueuePanel items={queueItems} onRemoveItem={removeFromQueue} onMoveItem={moveInQueue} />
 
@@ -339,13 +381,21 @@ export default function Home(): React.ReactNode {
         </aside>
 
         <section className="flex-1 overflow-y-auto p-5">
-          <GeneratedImages
-            images={history}
-            onUseAsInput={handleUseAsInput}
-            onClearHistory={clearHistory}
-            onRemoveImage={removeImage}
-            onReuseSeed={handleReuseSeed}
-          />
+          {mode === "prompt-refine" ? (
+            <PromptRefineComparison
+              loop={refineLoop.loop}
+              onSelect={refineLoop.selectCandidate}
+              onRetry={refineLoop.retryCandidate}
+            />
+          ) : (
+            <GeneratedImages
+              images={history}
+              onUseAsInput={handleUseAsInput}
+              onClearHistory={clearHistory}
+              onRemoveImage={removeImage}
+              onReuseSeed={handleReuseSeed}
+            />
+          )}
         </section>
       </main>
 

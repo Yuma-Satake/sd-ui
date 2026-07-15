@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback } from "react"
-import type { GenerationMode } from "@/types/generation"
+import type { AppMode } from "@/types/generation"
 import { useLocalStorage } from "./useLocalStorage"
 
 const SETTINGS_KEY = "sd-ui-settings-v2"
@@ -11,7 +11,7 @@ export type QualityMode = "fast" | "standard" | "high"
 export type SimpleSettings = {
   prompt: string
   qualityMode: QualityMode
-  mode: GenerationMode
+  mode: AppMode
   seed: string
 }
 
